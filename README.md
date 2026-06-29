@@ -5,8 +5,9 @@ damit Claude FHEM-Geräte lesen, steuern und (gegated) Konfiguration/Dateien
 ändern kann. Die Autorisierung liegt **vollständig in FHEM** (Modul
 `98_MCP.pm`); der Server reicht nur durch.
 
-> **Status:** v0.1.0 – Grundgerüst. Auth über Bearer-Header (Claude Code).
-> OAuth für die claude.ai-App ist als Ausbaustufe vorgesehen.
+> **Status:** v0.2.0 – zwei Auth-Wege werden unterstützt:
+> **Bearer-Header** (Claude Code) und **OAuth 2.1** (claude.ai-App/Desktop als
+> Custom Connector).
 
 ---
 
@@ -118,7 +119,7 @@ Diese Instanz nur im internen Docker-/LAN-Netz erreichbar machen.
 (`docker-compose.yml`) deployen. Den Reverse Proxy auf den Container
 (`fhem-mcp:8000`, Pfad `/mcp`) zeigen lassen – **nicht** auf FHEMWEB.
 
-### 4. In Claude Code anbinden
+### 4a. Anbinden über Claude Code (Bearer-Header)
 
 ```
 # Token in FHEM erzeugen:
@@ -130,6 +131,24 @@ claude mcp add --transport http fhem https://fhem-mcp.example.com/mcp \
 ```
 
 Nach Ablauf (Default 1 h) erneut `set mcp grant …` und den Header aktualisieren.
+
+### 4b. Anbinden über die claude.ai-App / Desktop (OAuth)
+
+Voraussetzung: `FHEMMCP_OAUTH_ENABLED=true` (Default) und – falls der Reverse
+Proxy keine korrekten `X-Forwarded-*`-Header setzt – `FHEMMCP_PUBLIC_URL` auf die
+externe URL.
+
+1. In der App einen **Custom Connector** mit der MCP-URL anlegen
+   (`https://fhem-mcp.example.com/mcp`).
+2. Die App startet automatisch den OAuth-Flow (Discovery, Dynamic Client
+   Registration, PKCE) und öffnet die **Consent-Seite** des Servers.
+3. Dort das in FHEM erzeugte Token (`set mcp grant read`) einfügen → der Server
+   prüft es gegen FHEM und stellt ein Access-Token aus.
+
+Der Server implementiert dafür einen kleinen OAuth-2.1-Authorization-Server
+(`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`,
+`/register`, `/authorize`, `/token`). FHEM bleibt die alleinige autorisierende
+Instanz – das Access-Token wird intern nur auf das FHEM-Token abgebildet.
 
 ---
 

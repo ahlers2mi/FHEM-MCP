@@ -93,3 +93,7 @@ class FhemClient:
         if not data.get("ok", False):
             raise FhemError(data.get("error", "unknown error"), data.get("code", 400))
         return data
+
+
+# Modulweiter Singleton, von Server und OAuth-Routen gemeinsam genutzt.
+client = FhemClient()

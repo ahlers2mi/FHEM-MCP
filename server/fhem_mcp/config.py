@@ -30,5 +30,13 @@ class Settings(BaseSettings):
     # Streamable-HTTP-Pfad, unter dem der MCP-Endpunkt erreichbar ist.
     mcp_path: str = "/mcp"
 
+    # OAuth (für claude.ai-App/Desktop als Custom Connector) aktivieren.
+    oauth_enabled: bool = True
+
+    # Öffentliche Basis-URL (Issuer/Endpunkte in den Discovery-Dokumenten).
+    # Leer = automatisch aus den (Forwarded-)Request-Headern ableiten.
+    # Beispiel: https://mcpsolar.example.synology.me
+    public_url: str | None = None
+
 
 settings = Settings()
