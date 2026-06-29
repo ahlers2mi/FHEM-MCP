@@ -150,6 +150,63 @@ Der Server implementiert dafür einen kleinen OAuth-2.1-Authorization-Server
 `/register`, `/authorize`, `/token`). FHEM bleibt die alleinige autorisierende
 Instanz – das Access-Token wird intern nur auf das FHEM-Token abgebildet.
 
+### 4c. Anbinden über VS Code mit GitHub Copilot Chat (MCP)
+
+VS Code ab Version 1.99 mit der GitHub-Copilot-Erweiterung unterstützt
+MCP-Server direkt im Editor. Die Konfiguration erfolgt über eine
+workspace-lokale Datei `.vscode/mcp.json`.
+
+> **Hinweis:** Dieser Weg funktioniert nur für **lokale VS-Code-Clients**.
+> **GitHub.com Copilot Chat** im Browser unterstützt keine direkte Verbindung
+> zu externen MCP-Endpunkten – eine URL in `.github/copilot-setup-steps.yml`
+> genügt dafür nicht.
+
+**Voraussetzungen:**
+
+- VS Code ≥ 1.99
+- GitHub-Copilot-Erweiterung (aktuelle Version)
+- VS-Code-Einstellung `chat.mcp.enabled: true` (Standardmäßig aktiviert ab 1.99)
+
+**Schritt-für-Schritt:**
+
+1. Token in FHEM erzeugen:
+
+   ```
+   set mcp grant read 60    # oder write / admin
+   ```
+
+2. Die mitgelieferte Vorlage `.vscode/mcp.json` in deinen Workspace kopieren
+   und die URL anpassen (Token wird beim ersten Verbindungsaufbau von VS Code
+   abgefragt und sicher gespeichert):
+
+   ```json
+   {
+     "servers": {
+       "fhem": {
+         "type": "http",
+         "url": "https://fhem-mcp.example.com/mcp",
+         "headers": {
+           "Authorization": "Bearer ${input:fhemToken}"
+         }
+       }
+     },
+     "inputs": [
+       {
+         "id": "fhemToken",
+         "type": "promptString",
+         "description": "FHEM MCP Token (in FHEM: set mcp grant read)",
+         "password": true
+       }
+     ]
+   }
+   ```
+
+3. VS Code lädt die Konfiguration automatisch. Den Server in der Copilot-Chat-
+   Seitenleiste unter **Tools** aktivieren.
+
+4. Im Copilot-Chat stehen jetzt FHEM-Tools wie `ping`, `list_devices` und
+   `get_device` zur Verfügung.
+
 ---
 
 ## Komponenten
@@ -157,6 +214,7 @@ Instanz – das Access-Token wird intern nur auf das FHEM-Token abgebildet.
 - `FHEM/98_MCP.pm` – Autorisierungs-Zentrale (Token, Scopes, Allowlists, Audit).
 - `server/` – Python-MCP-Server (FastMCP, Streamable-HTTP), FHEMWEB-Client.
 - `Dockerfile`, `docker-compose.yml`, `.env.example` – Deployment.
+- `.vscode/mcp.json` – Vorlage für VS Code Copilot Chat (MCP-Konfiguration, URL anpassen).
 - `controls_MCP.txt` – FHEM-Update (per GitHub-Action gepflegt, nicht manuell).
 
 ---
