@@ -12,9 +12,12 @@ from typing import Any
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
+from starlette.responses import JSONResponse
 
 from .config import settings
-from .fhem_client import FhemClient, FhemError
+from .fhem_client import FhemError, client as _client
+from . import oauth_routes as oa
+from .oauth import store as oauth_store
 
 # Pro Request gesetztes Bearer-Token (von der Middleware befüllt).
 _current_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -22,7 +25,6 @@ _current_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 mcp = FastMCP("fhem-mcp")
-_client = FhemClient()
 
 
 def _token() -> str:
@@ -162,24 +164,76 @@ async def modify_device(device: str, definition: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# ASGI-Middleware: Bearer-Token aus dem Authorization-Header lesen
+# ASGI-Middleware: Bearer-Token lesen und auflösen
+#   - OAuth-Access-Token  -> internes FHEM-Token (aus dem OAuth-Store)
+#   - sonst (v1)          -> roher Header-Wert als FHEM-Token durchreichen
+# Fehlt am MCP-Endpunkt jede Credential, wird mit 401 + WWW-Authenticate auf die
+# OAuth-Discovery verwiesen (das startet den Connector-Flow in der App).
 # ---------------------------------------------------------------------------
+def _resolve_token(token: str | None) -> str | None:
+    if not token:
+        return None
+    fhem = oauth_store.resolve_access_token(token)
+    return fhem if fhem is not None else token  # v1-Passthrough
+
+
+def _base_url_from_scope(scope: Any) -> str:
+    if settings.public_url:
+        return settings.public_url.rstrip("/")
+    headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+               for k, v in (scope.get("headers") or [])}
+    proto = headers.get("x-forwarded-proto") or scope.get("scheme", "https")
+    host = headers.get("x-forwarded-host") or headers.get("host", "")
+    return f"{proto}://{host}"
+
+
 class BearerTokenMiddleware:
     def __init__(self, app: Any) -> None:
         self.app = app
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope.get("type") == "http":
-            headers = dict(scope.get("headers") or [])
-            raw = headers.get(b"authorization", b"").decode("latin-1")
-            token = raw[7:].strip() if raw.lower().startswith("bearer ") else None
-            _current_token.set(token)
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        raw = headers.get(b"authorization", b"").decode("latin-1")
+        token = raw[7:].strip() if raw.lower().startswith("bearer ") else None
+        resolved = _resolve_token(token)
+        _current_token.set(resolved)
+
+        path = scope.get("path", "")
+        if (settings.oauth_enabled and resolved is None
+                and path.startswith(settings.mcp_path)):
+            base = _base_url_from_scope(scope)
+            resp = JSONResponse(
+                {"error": "unauthorized",
+                 "error_description": "OAuth required – siehe resource metadata"},
+                status_code=401,
+                headers={
+                    "WWW-Authenticate":
+                        f'Bearer resource_metadata="{base}{oa.PATH_PROTECTED_RESOURCE}"'
+                },
+            )
+            await resp(scope, receive, send)
+            return
+
         await self.app(scope, receive, send)
 
 
 def build_app() -> Any:
     mcp.settings.streamable_http_path = settings.mcp_path
     app = mcp.streamable_http_app()
+
+    if settings.oauth_enabled:
+        app.add_route(oa.PATH_PROTECTED_RESOURCE, oa.protected_resource_metadata,
+                      methods=["GET"])
+        app.add_route(oa.PATH_AUTH_SERVER, oa.authorization_server_metadata,
+                      methods=["GET"])
+        app.add_route(oa.PATH_REGISTER, oa.register, methods=["POST"])
+        app.add_route(oa.PATH_AUTHORIZE, oa.authorize, methods=["GET", "POST"])
+        app.add_route(oa.PATH_TOKEN, oa.token, methods=["POST"])
+
     return BearerTokenMiddleware(app)
 
 
