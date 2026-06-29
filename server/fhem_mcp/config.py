@@ -30,6 +30,22 @@ class Settings(BaseSettings):
     # Streamable-HTTP-Pfad, unter dem der MCP-Endpunkt erreichbar ist.
     mcp_path: str = "/mcp"
 
+    # Streamable-HTTP proxy-freundlich betreiben:
+    #   json_response = JSON statt SSE/event-stream (viele Reverse Proxies, u. a.
+    #     der Synology-eigene, puffern SSE und brechen die Verbindung ab).
+    #   stateless_http = keine serverseitige Session (kein mcp-session-id nötig).
+    json_response: bool = True
+    stateless_http: bool = True
+
+    # DNS-Rebinding-Schutz des MCP-SDK. Hinter einem Reverse Proxy kommt der
+    # öffentliche Host-Header an, der sonst gegen eine localhost-Allowlist
+    # geprüft und mit 421 (Invalid Host header) abgelehnt wird. Da der Zugang
+    # ohnehin über den TLS-Proxy + OAuth abgesichert ist, standardmäßig aus.
+    # Bei true zusätzlich allowed_hosts/allowed_origins setzen (Komma-Liste).
+    dns_rebinding_protection: bool = False
+    allowed_hosts: str | None = None
+    allowed_origins: str | None = None
+
     # OAuth (für claude.ai-App/Desktop als Custom Connector) aktivieren.
     oauth_enabled: bool = True
 

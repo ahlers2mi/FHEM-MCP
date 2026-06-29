@@ -222,7 +222,16 @@ class BearerTokenMiddleware:
 
 
 def build_app() -> Any:
+    from mcp.server.transport_security import TransportSecuritySettings
+
     mcp.settings.streamable_http_path = settings.mcp_path
+    mcp.settings.json_response = settings.json_response
+    mcp.settings.stateless_http = settings.stateless_http
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=settings.dns_rebinding_protection,
+        allowed_hosts=[h.strip() for h in (settings.allowed_hosts or "").split(",") if h.strip()],
+        allowed_origins=[o.strip() for o in (settings.allowed_origins or "").split(",") if o.strip()],
+    )
     app = mcp.streamable_http_app()
 
     if settings.oauth_enabled:
