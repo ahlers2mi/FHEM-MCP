@@ -31,7 +31,6 @@
 #      eigenem, eingeschraenktem WEB-Zugang (allowed/allowedCommands) nur dem
 #      MCP-Container erlaubt werden.
 #
-# Autor:    ahlers2mi
 # Version:  v0.1.0
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
@@ -681,9 +680,8 @@ sub MCP_err {
 <ul>
   <p>
     <b>MCP</b> ist die FHEM-seitige Autorisierungs-Zentrale fuer den
-    <a href="https://github.com/ahlers2mi/FHEM-MCP">FHEM-MCP-Server</a> (ein im
-    Internet erreichbarer Model-Context-Protocol-Server, der Claude den
-    Zugriff auf FHEM erlaubt).
+    FHEM-MCP-Server (ein im Internet erreichbarer
+    Model-Context-Protocol-Server, der Claude den Zugriff auf FHEM erlaubt).
   </p>
   <p>
     Der MCP-Server haelt selbst keine Berechtigungen, sondern reicht das vom
