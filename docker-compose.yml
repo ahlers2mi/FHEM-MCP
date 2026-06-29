@@ -15,6 +15,10 @@ services:
     build:
       context: ./server
     image: fhem-mcp:latest
+    # Image wird lokal gebaut (liegt in keiner Registry) -> Compose soll es
+    # bauen statt zu pullen. Verhindert "pull access denied" beim Redeploy.
+    # In Portainer beim Update zusaetzlich "Re-pull image" NICHT anhaken.
+    pull_policy: build
     container_name: fhem-mcp
     restart: unless-stopped
     environment:
@@ -32,8 +36,10 @@ services:
     #     Port an localhost binden, der Proxy zeigt dann auf http://localhost:8000.
     #     127.0.0.1 haelt den Dienst vom LAN fern (nur der Host-Proxy kommt ran).
     #     Falls der Proxy localhost nicht erreicht, "8000:8000" verwenden.
+    #   Host-Port ueber FHEMMCP_HOSTPORT konfigurierbar (Default 8000), falls 8000
+    #   auf der NAS schon belegt ist. Der Reverse Proxy zeigt dann auf diesen Port.
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${FHEMMCP_HOSTPORT:-8000}:8000"
     #   Fall B – Reverse Proxy als CONTAINER im selben Docker-Netz:
     #     statt 'ports' nur 'expose: ["8000"]' und gemeinsames Netz nutzen;
     #     der Proxy zeigt dann auf http://fhem-mcp:8000.
