@@ -1,0 +1,44 @@
+# FHEM-MCP-Server als Portainer-Stack.
+#
+# Wichtig fürs Sicherheitsmodell:
+#   * Dieser Container ist der EINZIGE, der vom Reverse Proxy (TLS) aus dem
+#     Internet erreichbar gemacht wird – niemals FHEMWEB direkt.
+#   * Der Container erreicht FHEMWEB nur über das interne Docker-Netz.
+#     FHEMWEB sollte eine eigene, abgeschottete Instanz sein (basicAuth,
+#     allowedCommands auf 'mcp' beschränkt).
+#
+# Variablen über Portainer-Stack-Env oder eine .env-Datei setzen
+# (siehe .env.example).
+
+services:
+  fhem-mcp:
+    build:
+      context: ./server
+    image: fhem-mcp:latest
+    container_name: fhem-mcp
+    restart: unless-stopped
+    environment:
+      FHEMMCP_FHEM_URL: ${FHEMMCP_FHEM_URL:-http://fhem:8083/fhem}
+      FHEMMCP_FHEM_USER: ${FHEMMCP_FHEM_USER:-}
+      FHEMMCP_FHEM_PASSWORD: ${FHEMMCP_FHEM_PASSWORD:-}
+      FHEMMCP_FHEM_VERIFY_TLS: ${FHEMMCP_FHEM_VERIFY_TLS:-true}
+      FHEMMCP_HOST: 0.0.0.0
+      FHEMMCP_PORT: 8000
+      FHEMMCP_MCP_PATH: ${FHEMMCP_MCP_PATH:-/mcp}
+    # Nur intern veröffentlichen; der Reverse Proxy terminiert TLS und leitet
+    # auf diesen Port weiter. Bei Bedarf an das Proxy-Netz anbinden.
+    expose:
+      - "8000"
+    # Beispiel, falls der Reverse Proxy in einem eigenen Netz läuft:
+    # networks:
+    #   - proxy
+    #   - fhem
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+
+# networks:
+#   proxy:
+#     external: true
+#   fhem:
+#     external: true
