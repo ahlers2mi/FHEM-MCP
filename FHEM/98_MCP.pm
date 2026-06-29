@@ -143,23 +143,32 @@ sub MCP_Set {
     # Set-Widgets fuer die FHEMWEB-Detailseite. widgetList kombiniert mehrere
     # Eingaben in EINEM Befehl:
     #   grant  = Scope-Dropdown + ttl-Dropdown + Namens-Textfeld
-    #   extend = id-Dropdown (vorhandene Tokens) + ttl-Dropdown
-    #   revoke = Dropdown (all + vorhandene ids)
+    #   extend = Dropdown (Name bzw. id) + ttl-Dropdown
+    #   revoke = Dropdown (all + Name bzw. id)
     # Die Zahl vor jedem Teil-Widget = Anzahl der dazugehoerigen Tokens
     # (Widgetname + Optionen), genau wie bei setList eines Klimageraets.
-    my @ids = grep { defined($_) && /^\w+$/ }
-              map  { $hash->{helper}{tokens}{$_}{id} }
-              sort { ($hash->{helper}{tokens}{$a}{issued} // 0)
-                         <=> ($hash->{helper}{tokens}{$b}{issued} // 0) }
-              keys %{$hash->{helper}{tokens}};
+    # Auswahlwert je Token: bevorzugt der Name (wenn gesetzt UND eindeutig),
+    # sonst die id - so bleibt die Auswahl eindeutig und ohne Leerzeichen.
+    # extend/revoke akzeptieren beides.
+    my $toks = $hash->{helper}{tokens};
+    my @keys = sort { ($toks->{$a}{issued} // 0) <=> ($toks->{$b}{issued} // 0) }
+               keys %$toks;
+    my %namecount;
+    $namecount{ $toks->{$_}{name} }++ foreach grep { ($toks->{$_}{name} // "") ne "" } @keys;
+    my @sel = grep { defined($_) && /^[\w.\-]+$/ }
+              map {
+                  my $t = $toks->{$_};
+                  (defined($t->{name}) && $t->{name} ne "" && ($namecount{$t->{name}} // 0) == 1)
+                      ? $t->{name} : $t->{id}
+              } @keys;
 
     my $ttlW    = "6,select,60,120,240,720,1440";        # 1 (select) + 5 Werte
     my $grantW  = "grant:widgetList,4,select,read,write,admin,$ttlW,1,textField";
-    my $extendW = @ids
-        ? "extend:widgetList," . (1 + scalar(@ids)) . ",select," . join(",", @ids) . ",$ttlW"
+    my $extendW = @sel
+        ? "extend:widgetList," . (1 + scalar(@sel)) . ",select," . join(",", @sel) . ",$ttlW"
         : "extend:textField";
-    my $revokeW = @ids
-        ? "revoke:select,all," . join(",", @ids)
+    my $revokeW = @sel
+        ? "revoke:select,all," . join(",", @sel)
         : "revoke:textField";
 
     my $list = "$grantW $extendW $revokeW revokeExpired:noArg";
@@ -184,7 +193,11 @@ sub MCP_Set {
         $ttl = AttrVal($name, "defaultTtl", 60) if(!defined($ttl));
         $ttl = $maxTtl if($ttl > $maxTtl);
         $ttl = 1       if($ttl < 1);
-        my $tname = join(" ", @nameparts);
+        # Name als einzelnes Auswahl-Token nutzbar machen: Leer-/Sonderzeichen
+        # zu '-' (damit er im FHEMWEB-select-Widget und als Argument funktioniert).
+        my $tname = join("-", @nameparts);
+        $tname =~ s/[^\w.\-]+/-/g;
+        $tname =~ s/^-+|-+$//g;
 
         my $token = MCP_randToken();
         my $id    = MCP_shortId($hash);
