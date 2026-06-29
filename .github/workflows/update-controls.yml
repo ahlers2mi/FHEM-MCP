@@ -1,0 +1,29 @@
+name: Update controls_MCP.txt
+
+on:
+  push:
+    paths:
+      - 'FHEM/98_MCP.pm'
+  workflow_dispatch:
+
+jobs:
+  update-controls:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update controls_MCP.txt
+        run: |
+          SIZE=$(wc -c < FHEM/98_MCP.pm)
+          DATE=$(date -u +"%Y-%m-%d_%H:%M:%S")
+          echo "UPD ${DATE} ${SIZE} FHEM/98_MCP.pm" > controls_MCP.txt
+
+      - name: Commit updated controls_MCP.txt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add controls_MCP.txt
+          git diff --cached --quiet || git commit -m "Auto-update controls_MCP.txt"
+          git push
