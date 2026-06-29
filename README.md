@@ -175,31 +175,26 @@ workspace-lokale Datei `.vscode/mcp.json`.
    set mcp grant read 60    # oder write / admin
    ```
 
-2. Die mitgelieferte Vorlage `.vscode/mcp.json` in deinen Workspace kopieren
-   und die URL anpassen (Token wird beim ersten Verbindungsaufbau von VS Code
-   abgefragt und sicher gespeichert):
+2. Vorlage `.vscode/mcp.json.example` → `.vscode/mcp.json` kopieren,
+   URL und Token eintragen:
 
    ```json
    {
      "servers": {
        "fhem": {
          "type": "http",
-         "url": "https://fhem-mcp.example.com/mcp",
+         "url": "https://dein-server.example.com/mcp",
          "headers": {
-           "Authorization": "Bearer ${input:fhemToken}"
+           "Authorization": "******"
          }
        }
-     },
-     "inputs": [
-       {
-         "id": "fhemToken",
-         "type": "promptString",
-         "description": "FHEM MCP Token (in FHEM: set mcp grant read)",
-         "password": true
-       }
-     ]
+     }
    }
    ```
+
+   > **Hinweis:** `.vscode/mcp.json` ist in `.gitignore` eingetragen – das Token
+   > bleibt lokal. Nach Ablauf (Standard 1 h) neues Token erzeugen und Header
+   > aktualisieren.
 
 3. VS Code lädt die Konfiguration automatisch. Den Server in der Copilot-Chat-
    Seitenleiste unter **Tools** aktivieren.
@@ -214,7 +209,7 @@ workspace-lokale Datei `.vscode/mcp.json`.
 - `FHEM/98_MCP.pm` – Autorisierungs-Zentrale (Token, Scopes, Allowlists, Audit).
 - `server/` – Python-MCP-Server (FastMCP, Streamable-HTTP), FHEMWEB-Client.
 - `Dockerfile`, `docker-compose.yml`, `.env.example` – Deployment.
-- `.vscode/mcp.json` – Vorlage für VS Code Copilot Chat (MCP-Konfiguration, URL anpassen).
+- `.vscode/mcp.json.example` – Vorlage für VS Code Copilot Chat (nach `.vscode/mcp.json` kopieren, URL + Token eintragen).
 - `controls_MCP.txt` – FHEM-Update (per GitHub-Action gepflegt, nicht manuell).
 
 ---
