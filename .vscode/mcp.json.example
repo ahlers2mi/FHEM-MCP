@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "fhem": {
+      "type": "http",
+      "url": "https://fhem-mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer Trage-HierDeinenFHEM-Token-Ein"
+      }
+    }
+  }
+}
