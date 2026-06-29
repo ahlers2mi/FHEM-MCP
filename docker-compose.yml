@@ -15,6 +15,10 @@ services:
     build:
       context: ./server
     image: fhem-mcp:latest
+    # Image wird lokal gebaut (liegt in keiner Registry) -> Compose soll es
+    # bauen statt zu pullen. Verhindert "pull access denied" beim Redeploy.
+    # In Portainer beim Update zusaetzlich "Re-pull image" NICHT anhaken.
+    pull_policy: build
     container_name: fhem-mcp
     restart: unless-stopped
     environment:
