@@ -32,7 +32,7 @@
 #      MCP-Container erlaubt werden.
 #
 # Autor:    ahlers2mi
-# Version:  v0.1.0
+# Version:  v0.2.0
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
 
@@ -80,6 +80,7 @@ sub MCP_Initialize {
     $hash->{DefFn}   = \&MCP_Define;
     $hash->{UndefFn} = \&MCP_Undef;
     $hash->{SetFn}   = \&MCP_Set;
+    $hash->{GetFn}   = \&MCP_Get;
     $hash->{AttrFn}  = \&MCP_Attr;
 
     $hash->{AttrList} =
@@ -108,7 +109,7 @@ sub MCP_Define {
     my ($hash, $def) = @_;
     my @param = split('[ \t]+', $def);
 
-    $hash->{FVERSION} = "98_MCP.pm:v0.1.0";
+    $hash->{FVERSION} = "98_MCP.pm:v0.2.0";
 
     return "Usage: define <name> MCP" if(int(@param) != 2);
 
@@ -139,7 +140,7 @@ sub MCP_Set {
     my ($hash, $name, $cmd, @args) = @_;
     return "\"set $name\" needs at least one argument" if(!defined($cmd));
 
-    my $list = "grant:read,write,admin revoke:noArg revokeExpired:noArg";
+    my $list = "grant:read,write,admin extend revoke revokeExpired:noArg";
 
     if($cmd eq "grant") {
         my $scope = shift(@args) // "read";
@@ -151,16 +152,24 @@ sub MCP_Set {
                    "first (enables define/modify = full control - use briefly!).";
         }
 
-        my $defTtl = AttrVal($name, "defaultTtl", 60);
+        # restliche Argumente: erste reine Zahl = ttl (Minuten), Rest = Name.
         my $maxTtl = AttrVal($name, "maxTtl", 1440);
-        my $ttl    = shift(@args);
-        $ttl = $defTtl if(!defined($ttl) || $ttl !~ /^\d+$/);
+        my ($ttl, @nameparts);
+        foreach my $a (@args) {
+            if(!defined($ttl) && $a =~ /^\d+$/) { $ttl = $a; }
+            else                                { push @nameparts, $a; }
+        }
+        $ttl = AttrVal($name, "defaultTtl", 60) if(!defined($ttl));
         $ttl = $maxTtl if($ttl > $maxTtl);
         $ttl = 1       if($ttl < 1);
+        my $tname = join(" ", @nameparts);
 
         my $token = MCP_randToken();
+        my $id    = MCP_shortId($hash);
         my $exp   = time() + $ttl * 60;
         $hash->{helper}{tokens}{ sha256_hex($token) } = {
+            id     => $id,
+            name   => $tname,
             scope  => $scope,
             exp    => $exp,
             issued => time(),
@@ -168,27 +177,61 @@ sub MCP_Set {
 
         MCP_refreshCount($hash);
         readingsSingleUpdate($hash, "lastGrant",
-            FmtDateTime(time())." scope=$scope ttl=${ttl}min", 1);
-        Log3($name, 3, "$name: granted token scope=$scope ttl=${ttl}min ".
-                       "(expires ".FmtDateTime($exp).")");
+            FmtDateTime(time())." id=$id".($tname ne "" ? " name=$tname" : "").
+            " scope=$scope ttl=${ttl}min", 1);
+        Log3($name, 3, "$name: granted token id=$id".($tname ne "" ? " name=$tname" : "").
+                       " scope=$scope ttl=${ttl}min (expires ".FmtDateTime($exp).")");
 
-        # Das Klartext-Token wird genau hier EINMAL ausgegeben (im FHEMWEB-
-        # Dialog). Es wird nirgends gespeichert - danach nur noch sein Hash.
+        # Das Klartext-Token wird genau hier EINMAL ausgegeben. Es wird nirgends
+        # gespeichert - danach nur noch sein Hash (Klartext nicht wieder zeigbar).
         return
-            "Token (scope=$scope, gueltig ${ttl} min, laeuft ".FmtDateTime($exp).
-            " ab):\n\n$token\n\n".
-            "Im Claude-Code-MCP-Client als Bearer-Header eintragen, z. B.:\n".
-            "  claude mcp add --transport http fhem <URL> \\\n".
-            "    --header \"Authorization: Bearer $token\"\n\n".
+            "Token  (id=$id".($tname ne "" ? ", name='$tname'" : "").
+            ", scope=$scope, gueltig ${ttl} min, laeuft ".FmtDateTime($exp)." ab):\n\n".
+            "$token\n\n".
+            "Verlaengern (Token bleibt gueltig, kein Neu-Verbinden noetig):\n".
+            "  set $name extend $id [minuten]\n".
+            "Liste/Status:  get $name tokens\n".
             "Dieses Token wird NICHT erneut angezeigt.";
     }
 
-    if($cmd eq "revoke") {
-        my $n = scalar(keys %{$hash->{helper}{tokens}});
-        $hash->{helper}{tokens} = {};
+    if($cmd eq "extend") {
+        my $sel = shift(@args);
+        return "usage: set $name extend <id|name> [minuten]"
+            if(!defined($sel) || $sel eq "");
+        my $maxTtl = AttrVal($name, "maxTtl", 1440);
+        my $ttl    = shift(@args);
+        $ttl = AttrVal($name, "defaultTtl", 60) if(!defined($ttl) || $ttl !~ /^\d+$/);
+        $ttl = $maxTtl if($ttl > $maxTtl);
+        $ttl = 1       if($ttl < 1);
+
+        my @h = MCP_findTokenHashes($hash, $sel);
+        return "kein Token mit id/name '$sel' (siehe: get $name tokens)" if(!@h);
+        return "'$sel' passt auf ".scalar(@h)." Tokens - bitte die id verwenden ".
+               "(get $name tokens)" if(@h > 1);
+
+        my $exp = time() + $ttl * 60;
+        $hash->{helper}{tokens}{$h[0]}{exp} = $exp;
         MCP_refreshCount($hash);
-        Log3($name, 3, "$name: revoked all tokens ($n)");
-        return "$n Token(s) widerrufen.";
+        Log3($name, 3, "$name: extended token '$sel' by ${ttl}min");
+        return "Token '$sel' verlaengert: laeuft jetzt ".FmtDateTime($exp).
+               " ab (${ttl} min).";
+    }
+
+    if($cmd eq "revoke") {
+        my $sel = shift(@args);
+        if(!defined($sel) || $sel eq "" || lc($sel) eq "all") {
+            my $n = scalar(keys %{$hash->{helper}{tokens}});
+            $hash->{helper}{tokens} = {};
+            MCP_refreshCount($hash);
+            Log3($name, 3, "$name: revoked all tokens ($n)");
+            return "$n Token(s) widerrufen.";
+        }
+        my @h = MCP_findTokenHashes($hash, $sel);
+        return "kein Token mit id/name '$sel'" if(!@h);
+        delete $hash->{helper}{tokens}{$_} foreach (@h);
+        MCP_refreshCount($hash);
+        Log3($name, 3, "$name: revoked ".scalar(@h)." token(s) '$sel'");
+        return scalar(@h)." Token(s) zu '$sel' widerrufen.";
     }
 
     if($cmd eq "revokeExpired") {
@@ -244,12 +287,45 @@ sub MCP_randToken {
     return $tok;
 }
 
+# Zaehlt nur aktive (nicht abgelaufene) Tokens. Abgelaufene werden NICHT
+# geloescht, damit sie per "extend" reaktiviert werden koennen (Aufraeumen
+# explizit ueber "revokeExpired").
 sub MCP_refreshCount {
     my ($hash) = @_;
-    MCP_purgeExpired($hash);
-    my $n = scalar(keys %{$hash->{helper}{tokens}});
+    my $now = time();
+    my $n = scalar grep { $hash->{helper}{tokens}{$_}{exp} > $now }
+                   keys %{$hash->{helper}{tokens}};
     readingsSingleUpdate($hash, "activeTokens", $n, 1);
     return $n;
+}
+
+# Token-Hashes finden, deren id ODER name dem Selektor entspricht.
+sub MCP_findTokenHashes {
+    my ($hash, $sel) = @_;
+    my @h;
+    foreach my $k (keys %{$hash->{helper}{tokens}}) {
+        my $t = $hash->{helper}{tokens}{$k};
+        push @h, $k if(($t->{id} // "") eq $sel || ($t->{name} // "") eq $sel);
+    }
+    return @h;
+}
+
+# Kurze, eindeutige id (6 hex) fuer Anzeige/extend/revoke.
+sub MCP_shortId {
+    my ($hash) = @_;
+    my %used = map { ($hash->{helper}{tokens}{$_}{id} // "") => 1 }
+               keys %{$hash->{helper}{tokens}};
+    foreach my $try (1..50) {
+        my $bytes;
+        if(open(my $fh, "<", "/dev/urandom")) {
+            binmode($fh); read($fh, $bytes, 3); close($fh);
+        }
+        my $id = (defined($bytes) && length($bytes) == 3)
+                   ? unpack("H6", $bytes)
+                   : sprintf("%06x", int(rand(2**24)));
+        return $id if(!$used{$id});
+    }
+    return sprintf("%06x", int(rand(2**24)));
 }
 
 sub MCP_purgeExpired {
@@ -272,12 +348,46 @@ sub MCP_tokenLevel {
     my $h = sha256_hex($token);
     my $t = $hash->{helper}{tokens}{$h};
     return undef if(!$t);
-    if($t->{exp} <= time()) {
-        delete $hash->{helper}{tokens}{$h};
-        MCP_refreshCount($hash);
-        return undef;
-    }
+    # Abgelaufenes Token nicht loeschen (extend soll es reaktivieren koennen),
+    # nur als ungueltig behandeln.
+    return undef if($t->{exp} <= time());
     return $MCP_scopeLevel{ $t->{scope} };
+}
+
+# ----------------------------------------------------------------------------
+# MCP_Get  - get <name> tokens : Liste der Tokens (ohne Klartext)
+# ----------------------------------------------------------------------------
+sub MCP_Get {
+    my ($hash, $name, $cmd, @args) = @_;
+    return "\"get $name\" needs at least one argument" if(!defined($cmd));
+    return MCP_tokenTable($hash) if($cmd eq "tokens");
+    return "Unknown argument $cmd, choose one of tokens:noArg";
+}
+
+# Texttabelle aller Tokens (Klartext ist nicht gespeichert und nicht zeigbar).
+sub MCP_tokenTable {
+    my ($hash) = @_;
+    my $toks = $hash->{helper}{tokens};
+    my $now  = time();
+    my @keys = sort { ($toks->{$a}{issued} // 0) <=> ($toks->{$b}{issued} // 0) }
+               keys %$toks;
+    return "Keine Tokens vorhanden." if(!@keys);
+
+    my $fmt = "%-8s %-18s %-6s %-19s %s";
+    my @rows = sprintf($fmt, "id", "name", "scope", "laeuft ab", "status");
+    push @rows, "-" x 72;
+    foreach my $k (@keys) {
+        my $t   = $toks->{$k};
+        my $rem = int(($t->{exp} - $now) / 60);
+        my $status = $rem > 0 ? "aktiv (${rem} min)" : "ABGELAUFEN";
+        push @rows, sprintf($fmt,
+            $t->{id} // "-",
+            (defined($t->{name}) && $t->{name} ne "") ? $t->{name} : "-",
+            $t->{scope} // "-",
+            FmtDateTime($t->{exp}),
+            $status);
+    }
+    return join("\n", @rows);
 }
 
 # ============================================================================
@@ -716,15 +826,36 @@ sub MCP_err {
   <b>Set</b>
   <ul>
     <li><a id="MCP-set-grant"></a><b>grant</b> <code>read|write|admin
-        [ttlMinuten]</code> &ndash; erzeugt ein Token und gibt es <i>einmalig</i>
-        im Dialog aus (danach nur noch der Hash). Default-Gueltigkeit ueber
-        <code>defaultTtl</code> (60 min), begrenzt durch <code>maxTtl</code>.
-        Das Token in den Claude-Code-MCP-Client als
-        <code>Authorization: Bearer &lt;token&gt;</code>-Header eintragen.</li>
-    <li><a id="MCP-set-revoke"></a><b>revoke</b> &ndash; widerruft sofort alle
-        Tokens (Not-Aus).</li>
+        [ttlMinuten] [name]</code> &ndash; erzeugt ein Token und gibt es
+        <i>einmalig</i> im Dialog aus (danach nur noch der Hash; der Klartext
+        kann nicht erneut angezeigt werden). Optional ein <i>Name</i> (z. B.
+        <code>Claude-App</code>) zur Wiedererkennung und eine
+        <i>ttl</i> in Minuten (Default <code>defaultTtl</code>=60, max
+        <code>maxTtl</code>). Reihenfolge egal: die reine Zahl ist die ttl, der
+        Rest der Name. Beispiel: <code>set mcp grant read 1440 Claude-App</code>.
+        Jedes Token bekommt eine kurze <code>id</code> (im Dialog/in der Liste).</li>
+    <li><a id="MCP-set-extend"></a><b>extend</b> <code>&lt;id|name&gt;
+        [minuten]</code> &ndash; verlaengert die Gueltigkeit (reaktiviert auch
+        ein bereits abgelaufenes, noch nicht aufgeraeumtes Token). Der
+        Token-<i>String</i> bleibt unveraendert &ndash; ein verbundener Client
+        muss sich also <b>nicht</b> neu authentifizieren. Beispiel:
+        <code>set mcp extend 1a2b3c 1440</code>.</li>
+    <li><a id="MCP-set-revoke"></a><b>revoke</b> <code>[&lt;id|name&gt;|all]</code>
+        &ndash; widerruft ein bestimmtes Token (per id oder name) bzw. ohne
+        Argument / mit <code>all</code> <b>alle</b> (Not-Aus).</li>
     <li><a id="MCP-set-revokeExpired"></a><b>revokeExpired</b> &ndash; entfernt
-        abgelaufene Tokens.</li>
+        abgelaufene Tokens endgueltig (danach nicht mehr per extend
+        reaktivierbar).</li>
+  </ul>
+  <br>
+
+  <a id="MCP-get"></a>
+  <b>Get</b>
+  <ul>
+    <li><a id="MCP-get-tokens"></a><b>tokens</b> &ndash; listet alle Tokens mit
+        <code>id</code>, <code>name</code>, <code>scope</code>, Ablaufzeitpunkt
+        und Status (aktiv/abgelaufen). Der Token-Klartext wird dabei nicht
+        angezeigt (nur der Hash ist gespeichert).</li>
   </ul>
   <br>
 
