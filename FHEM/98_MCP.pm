@@ -140,7 +140,29 @@ sub MCP_Set {
     my ($hash, $name, $cmd, @args) = @_;
     return "\"set $name\" needs at least one argument" if(!defined($cmd));
 
-    my $list = "grant:read,write,admin extend revoke revokeExpired:noArg";
+    # Set-Widgets fuer die FHEMWEB-Detailseite. widgetList kombiniert mehrere
+    # Eingaben in EINEM Befehl:
+    #   grant  = Scope-Dropdown + ttl-Dropdown + Namens-Textfeld
+    #   extend = id-Dropdown (vorhandene Tokens) + ttl-Dropdown
+    #   revoke = Dropdown (all + vorhandene ids)
+    # Die Zahl vor jedem Teil-Widget = Anzahl der dazugehoerigen Tokens
+    # (Widgetname + Optionen), genau wie bei setList eines Klimageraets.
+    my @ids = grep { defined($_) && /^\w+$/ }
+              map  { $hash->{helper}{tokens}{$_}{id} }
+              sort { ($hash->{helper}{tokens}{$a}{issued} // 0)
+                         <=> ($hash->{helper}{tokens}{$b}{issued} // 0) }
+              keys %{$hash->{helper}{tokens}};
+
+    my $ttlW    = "6,select,60,120,240,720,1440";        # 1 (select) + 5 Werte
+    my $grantW  = "grant:widgetList,4,select,read,write,admin,$ttlW,1,textField";
+    my $extendW = @ids
+        ? "extend:widgetList," . (1 + scalar(@ids)) . ",select," . join(",", @ids) . ",$ttlW"
+        : "extend:textField";
+    my $revokeW = @ids
+        ? "revoke:select,all," . join(",", @ids)
+        : "revoke:textField";
+
+    my $list = "$grantW $extendW $revokeW revokeExpired:noArg";
 
     if($cmd eq "grant") {
         my $scope = shift(@args) // "read";
