@@ -19,7 +19,10 @@ services:
     # bauen statt zu pullen. Verhindert "pull access denied" beim Redeploy.
     # In Portainer beim Update zusaetzlich "Re-pull image" NICHT anhaken.
     pull_policy: build
-    container_name: fhem-mcp
+    # Kein fester container_name: sonst kollidiert ein zweiter Stack (z. B. für
+    # eine weitere FHEM-Instanz) mit demselben Namen. Ohne diese Zeile vergibt
+    # Compose pro Stack einen eindeutigen Namen (<stackname>-fhem-mcp-1).
+    # Bei Bedarf gezielt setzen: container_name: ${FHEMMCP_NAME:-}
     restart: unless-stopped
     environment:
       FHEMMCP_FHEM_URL: ${FHEMMCP_FHEM_URL:-http://fhem:8083/fhem}
