@@ -140,6 +140,12 @@ sub MCP_Set {
     my ($hash, $name, $cmd, @args) = @_;
     return "\"set $name\" needs at least one argument" if(!defined($cmd));
 
+    # FHEMWEB fuegt die Werte eines widgetList-Widgets mit Komma zu EINEM
+    # Argument zusammen (die GUI sendet z. B. "extend Claude-App,60"). Argumente
+    # daher zusaetzlich an Kommas zerlegen - so funktionieren GUI und
+    # Kommandozeile gleich (Namen/Scopes/ttl enthalten ohnehin keine Kommas).
+    @args = grep { defined($_) && $_ ne "" } map { split(/,/, $_) } @args;
+
     # Set-Widgets fuer die FHEMWEB-Detailseite. widgetList kombiniert mehrere
     # Eingaben in EINEM Befehl:
     #   grant  = Scope-Dropdown + ttl-Dropdown + Namens-Textfeld
