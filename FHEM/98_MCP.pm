@@ -640,9 +640,15 @@ sub MCP_setAttribute {
     return MCP_err("device '$dev' not writable (not in writeRoom)", 403)
         if(!MCP_canWrite($name, $dev));
 
-    # Nicht erlauben, ein Geraet aus dem Allowlist-Raum herauszuschreiben.
-    return MCP_err("changing 'room' is not allowed via MCP", 403)
-        if($aname eq "room");
+    # room darf gesetzt werden, aber das Geraet darf sich nicht selbst aus der
+    # Allowlist werfen: enthaelt der neue Wert weder read- noch writeRoom, wird
+    # der writeRoom automatisch ergaenzt (Geraet bleibt steuerbar).
+    if($aname eq "room") {
+        my %r = map { $_ => 1 } grep { /\S/ } split(/\s*,\s*/, $aval);
+        if(!$r{ MCP_readRoom($name) } && !$r{ MCP_writeRoom($name) }) {
+            $aval = ($aval ne "" ? "$aval," : "") . MCP_writeRoom($name);
+        }
+    }
 
     my $ret = AnalyzeCommand(undef, "attr $dev $aname $aval");
     $ret = "" if(!defined($ret));
@@ -798,9 +804,26 @@ sub MCP_defmod {
     $ret = "" if(!defined($ret));
     return MCP_err(($isModify ? "modify" : "define")." failed: $ret") if($ret =~ /\S/);
 
-    Log3($name, 2, "$name: ADMIN ".($isModify?"modify":"define")." $dev");
+    # Neu angelegtes Geraet automatisch in den writeRoom legen, damit es sofort
+    # in der Allowlist ist und weiterbearbeitet werden kann (sonst: anlegen und
+    # dann kein Zugriff mehr). Vorhandene Raeume bleiben erhalten.
+    my $assigned = "";
+    if(!$isModify) {
+        my $wr = MCP_writeRoom($name);
+        my %r  = map { $_ => 1 } MCP_devRooms($dev);
+        if(!$r{$wr} && !$r{ MCP_readRoom($name) }) {
+            my $cur = AttrVal($dev, "room", "");
+            my $new = $cur ne "" ? "$cur,$wr" : $wr;
+            AnalyzeCommand(undef, "attr $dev room $new");
+            $assigned = $wr;
+        }
+    }
+
+    Log3($name, 2, "$name: ADMIN ".($isModify?"modify":"define")." $dev".
+                   ($assigned ne "" ? " (room+=$assigned)" : ""));
     return MCP_ok({ executed => ($isModify ? "modify $dev" : "defmod $dev"),
-                    device => $dev });
+                    device => $dev,
+                    assignedRoom => $assigned });
 }
 
 # ----------------------------------------------------------------------------
