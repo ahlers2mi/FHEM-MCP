@@ -1,5 +1,6 @@
 {
   "name": "claude-for-fhem-services",
+  "description": "Marketplace für die Anbindung von FHEM an Claude über MCP.",
   "owner": {
     "name": "Michael Ahlers"
   },
@@ -8,6 +9,6 @@
       "name": "fhem-main",
       "displayName": "Zugriff auf FHEM",
       "source": "./plugins/fhem/FHEMMain",
-      "description": "Super Sache!"
+      "description": "Verbindet Claude per MCP mit deiner FHEM-Hausautomatisierung."
     }]
 }

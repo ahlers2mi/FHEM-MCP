@@ -1,7 +1,7 @@
 {
   "name": "fhem-main",
   "version": "1.0.0",
-  "description": "Super Sache!",
+  "description": "Verbindet Claude per MCP mit deiner FHEM-Hausautomatisierung.",
   "author": {
     "name": "Michael Ahlers"
   }
