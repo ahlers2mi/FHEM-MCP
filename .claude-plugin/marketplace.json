@@ -1,0 +1,13 @@
+{
+  "name": "claude-for-FHEM-services",
+  "owner": {
+    "name": "Michael Ahlers"
+  },
+  "plugins": [
+    {
+      "name": "FHEMMain",
+      "displayName": "Zugriff auf FHEM",
+      "source": "./plugins/fhem/FHEMMain",
+      "description": "Super Sache!"
+    }]
+}
