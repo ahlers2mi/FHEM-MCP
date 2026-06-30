@@ -586,12 +586,25 @@ sub MCP_getDevice {
 
     my @sets = split(/\s+/, getAllSets($dev) // "");
 
+    # Internals (skalare Werte) - enthaelt u.a. DEF, das fuer notify/DOIF/at
+    # die eigentliche Definition (Trigger + Code) ist. Refs (READINGS/helper)
+    # und Punkt-/sensible Keys werden uebersprungen.
+    my %internals;
+    foreach my $k (keys %$h) {
+        next if(ref($h->{$k}) || !defined($h->{$k}));
+        next if($k =~ /^\./);
+        next if($k =~ /(?:pass|passwd|password|secret|token|apikey|^key$)/i);
+        $internals{$k} = $h->{$k};
+    }
+
     return MCP_ok({
         name        => $dev,
         type        => ($h->{TYPE} // ""),
+        def         => ($h->{DEF} // ""),
         state       => ReadingsVal($dev, "state", ($h->{STATE} // "")),
         readings    => \%readings,
         attributes  => \%attrs,
+        internals   => \%internals,
         possibleSets=> \@sets,
         writable    => MCP_canWrite($name, $dev) ? JSON::true : JSON::false,
     });
