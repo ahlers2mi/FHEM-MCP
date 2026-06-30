@@ -57,7 +57,13 @@ class FhemClient:
 
     async def call(self, token: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Führt eine MCP-Aktion in FHEM aus und liefert die geparste Antwort."""
-        b64 = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+        # ensure_ascii=False -> echte UTF-8-Oktette statt \uXXXX-Escapes. Das
+        # FHEM-Modul nutzt from_json (ohne utf8-Layer) und reicht die Oktette
+        # damit unveraendert durch. Mit \uXXXX wuerden Umlaute zu Unicode-Zeichen
+        # dekodiert, die im Byte-Modus-FHEM zu kaputten Einzelbytes werden
+        # (z. B. "ä" -> 0xE4 -> "�"). Symmetrisch zum funktionierenden Lesepfad.
+        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        b64 = base64.b64encode(raw).decode("ascii")
         cmd = f"mcp {token} {b64}"
 
         result = await self._request(cmd)
