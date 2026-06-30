@@ -66,13 +66,13 @@ ohnehin erlauben.
 | `list_devices(type?)` | read | Freigegebene Geräte (Räume MCP/MCP_rw) |
 | `get_device(name)` | read | Readings, Attribute, State, mögliche set-Befehle |
 | `set_device(name, command, args?)` | write | `set <name> <command> [args]` (nur MCP_rw) |
-| `set_attribute(device, attribute, value)` | write | `attr …` (nur MCP_rw, außer `room`) |
+| `set_attribute(device, attribute, value)` | write | `attr …` (nur MCP_rw; `room` setzbar, der writeRoom bleibt aber erhalten) |
 | `set_reading(device, reading, value)` | write | `setreading …` |
 | `delete_reading(device, reading)` | write | `deletereading …` |
 | `list_files()` | read | Freigegebene Dateien (`allowFiles`) |
 | `read_file(path)` | read | Datei lesen |
 | `write_file(path, content)` | write¹ | Datei schreiben (¹`.pm` ⇒ admin) |
-| `define_device(device, definition)` | admin | `defmod …` |
+| `define_device(device, definition)` | admin | `defmod …`; neu angelegtes Gerät kommt automatisch in den writeRoom (sofort weiter nutzbar) |
 | `modify_device(device, definition)` | admin | `modify …` |
 
 ---
