@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "FHEMMain": {
+      "type": "http",
+      "url": "https://mcpfhemmain.michael171185.synology.me/mcp"
+    }
+  }
+}
