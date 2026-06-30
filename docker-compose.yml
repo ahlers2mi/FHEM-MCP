@@ -58,7 +58,7 @@ services:
               "--api-key", "${MCPO_API_KEY}",
               "--config", "/config/config.json", "--hot-reload"]
     volumes:
-      - ./mcpo-config.json:/config/config.json:ro
+      - "${MCPO_CONFIG:-./mcpo-config.json}:/config/config.json:ro"
     ports:
       - "127.0.0.1:${MCPO_HOSTPORT:-8085}:8000"
     security_opt:
