@@ -49,3 +49,17 @@ services:
     security_opt:
       - no-new-privileges:true
     read_only: true
+
+  mcpo:
+    image: ghcr.io/open-webui/mcpo:main
+    restart: unless-stopped
+    depends_on: [fhem-mcp]
+    command: ["--host", "0.0.0.0", "--port", "8000",
+              "--api-key", "${MCPO_API_KEY}",
+              "--config", "/config/config.json", "--hot-reload"]
+    volumes:
+      - ./mcpo-config.json:/config/config.json:ro
+    ports:
+      - "127.0.0.1:${MCPO_HOSTPORT:-8085}:8000"
+    security_opt:
+      - no-new-privileges:true
