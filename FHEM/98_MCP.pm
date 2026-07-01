@@ -44,8 +44,9 @@ use warnings;
 use MIME::Base64 qw(encode_base64 decode_base64);
 use Digest::SHA  qw(sha256_hex);
 use JSON;
+use Encode ();
 
-use vars qw($readingFnAttributes $init_done %cmds %defs %attr);
+use vars qw($readingFnAttributes $init_done %cmds %defs %attr $unicodeEncoding);
 
 # Scope-Hierarchie (kumulativ): admin schliesst write ein, write schliesst
 # read ein.
@@ -480,6 +481,12 @@ sub MCP_command {
     my $req = eval { from_json($json) };
     return MCP_err("json parse failed") if($@ || ref($req) ne "HASH");
 
+    # UTF-8 normalisieren (wie in FHEM-DoRemote): from_json liefert die UTF-8-
+    # Oktette utf8-geflaggt zurueck. Im Byte-Modus muss das Flag weg (sonst
+    # laufen length/syswrite auseinander -> kaputte Umlaute), im Unicode-Modus
+    # werden die Oktette zu Zeichen dekodiert.
+    MCP_normReq($req);
+
     my $action = $req->{action} // "";
     my $need   = $MCP_actionLevel{$action};
     return MCP_err("unknown action '$action'") if(!defined($need));
@@ -586,12 +593,25 @@ sub MCP_getDevice {
 
     my @sets = split(/\s+/, getAllSets($dev) // "");
 
+    # Internals (skalare Werte) - enthaelt u.a. DEF, das fuer notify/DOIF/at
+    # die eigentliche Definition (Trigger + Code) ist. Refs (READINGS/helper)
+    # und Punkt-/sensible Keys werden uebersprungen.
+    my %internals;
+    foreach my $k (keys %$h) {
+        next if(ref($h->{$k}) || !defined($h->{$k}));
+        next if($k =~ /^\./);
+        next if($k =~ /(?:pass|passwd|password|secret|token|apikey|^key$)/i);
+        $internals{$k} = $h->{$k};
+    }
+
     return MCP_ok({
         name        => $dev,
         type        => ($h->{TYPE} // ""),
+        def         => ($h->{DEF} // ""),
         state       => ReadingsVal($dev, "state", ($h->{STATE} // "")),
         readings    => \%readings,
         attributes  => \%attrs,
+        internals   => \%internals,
         possibleSets=> \@sets,
         writable    => MCP_canWrite($name, $dev) ? JSON::true : JSON::false,
     });
@@ -824,6 +844,29 @@ sub MCP_defmod {
     return MCP_ok({ executed => ($isModify ? "modify $dev" : "defmod $dev"),
                     device => $dev,
                     assignedRoom => $assigned });
+}
+
+# ----------------------------------------------------------------------------
+# UTF-8-Normalisierung der dekodierten Request-Strings (siehe MCP_command).
+# ----------------------------------------------------------------------------
+sub MCP_normStr {
+    my ($s) = @_;
+    return $s if(!defined($s) || ref($s));
+    if(!$unicodeEncoding) {
+        # Byte-Modus: Flag entfernen, Oktette (z. B. c3 a4) unveraendert lassen.
+        utf8::downgrade($s, 1);
+    } elsif(!utf8::is_utf8($s)) {
+        # Unicode-Modus: UTF-8-Oktette zu Zeichen dekodieren.
+        $s = Encode::decode("UTF-8", $s);
+    }
+    return $s;
+}
+
+sub MCP_normReq {
+    my ($x) = @_;
+    if(ref($x) eq "HASH")  { $x->{$_} = MCP_normReq($x->{$_}) for keys %$x; return $x; }
+    if(ref($x) eq "ARRAY") { @$x = map { MCP_normReq($_) } @$x;             return $x; }
+    return MCP_normStr($x);
 }
 
 # ----------------------------------------------------------------------------

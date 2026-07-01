@@ -64,7 +64,7 @@ ohnehin erlauben.
 |---|---|---|
 | `ping` | read | Verbindung/Token prüfen |
 | `list_devices(type?)` | read | Freigegebene Geräte (Räume MCP/MCP_rw) |
-| `get_device(name)` | read | Readings, Attribute, State, mögliche set-Befehle |
+| `get_device(name)` | read | DEF, Internals, Readings, Attribute, State, mögliche set-Befehle |
 | `set_device(name, command, args?)` | write | `set <name> <command> [args]` (nur MCP_rw) |
 | `set_attribute(device, attribute, value)` | write | `attr …` (nur MCP_rw; `room` setzbar, der writeRoom bleibt aber erhalten) |
 | `set_reading(device, reading, value)` | write | `setreading …` |

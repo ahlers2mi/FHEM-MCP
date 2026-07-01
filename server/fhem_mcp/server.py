@@ -63,8 +63,9 @@ async def list_devices(type: str = "") -> dict[str, Any]:
 
 @mcp.tool()
 async def get_device(name: str) -> dict[str, Any]:
-    """Details eines freigegebenen Geräts: readings, attributes, internals,
-    state und die möglichen set-Befehle (possibleSets)."""
+    """Details eines freigegebenen Geräts: def (Definition – Trigger/Code für
+    notify/DOIF/at), internals, readings, attributes, state und die möglichen
+    set-Befehle (possibleSets)."""
     return await _call({"action": "get_device", "device": name})
 
 
