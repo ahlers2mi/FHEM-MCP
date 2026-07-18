@@ -71,6 +71,7 @@ ohnehin erlauben.
 | `delete_reading(device, reading)` | write | `deletereading …` |
 | `list_files()` | read | Freigegebene Dateien (`allowFiles`) |
 | `read_file(path)` | read | Datei lesen |
+| `search_log(pattern?, limit?, ignore_case?)` | read | FHEM-System-Log durchsuchen (Regex, jüngste N Treffer; Tokens redigiert) |
 | `write_file(path, content)` | write¹ | Datei schreiben (¹`.pm` ⇒ admin) |
 | `define_device(device, definition)` | admin | `defmod …`; neu angelegtes Gerät kommt automatisch in den writeRoom (sofort weiter nutzbar) |
 | `modify_device(device, definition)` | admin | `modify …` |

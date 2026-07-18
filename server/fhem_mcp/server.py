@@ -136,6 +136,24 @@ async def read_file(path: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+async def search_log(
+    pattern: str = "", limit: int = 100, ignore_case: bool = False
+) -> dict[str, Any]:
+    """Das FHEM-System-Logfile durchsuchen (praktisch für Fehlersuche/„warum ist
+    X passiert"). pattern = Perl-Regex (leer = alle Zeilen); es werden die
+    jüngsten `limit` Treffer (max 1000) zurückgegeben. Tokens werden aus den
+    Zeilen entfernt."""
+    return await _call(
+        {
+            "action": "search_log",
+            "pattern": pattern,
+            "limit": limit,
+            "ignoreCase": ignore_case,
+        }
+    )
+
+
+@mcp.tool()
 async def write_file(path: str, content: str) -> dict[str, Any]:
     """Eine freigegebene Datei schreiben. CSS/JS benötigen den write-Scope,
     .pm-Module zusätzlich den admin-Scope. Datei muss in allowFiles stehen."""

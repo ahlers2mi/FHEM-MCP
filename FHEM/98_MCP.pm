@@ -63,6 +63,7 @@ my %MCP_actionLevel = (
     delete_reading=> 2,
     list_files    => 1,
     read_file     => 1,
+    search_log    => 1,
     write_file    => 2,   # .pm-Dateien verlangen zusaetzlich admin (s. MCP_writeFile)
     define_device => 3,
     modify_device => 3,
@@ -89,6 +90,7 @@ sub MCP_Initialize {
           "readRoom " .            # Raumname fuer NUR-lesbar (Default MCP)
           "writeRoom " .           # Raumname fuer steuerbar  (Default MCP_rw)
           "allowFiles:textField-long " . # einzeln freigegebene Dateien (eine pro Zeile, *-Glob)
+          "logFile " .             # alternatives Logfile fuer search_log (Default: global logfile)
           "defaultTtl " .          # Default-Gueltigkeit eines Grants in Minuten (60)
           "maxTtl " .              # Obergrenze fuer ttl in Minuten (1440)
           "adminScopeAllowed:1,0 " . # define/modify global erlauben (Default 0)
@@ -522,6 +524,7 @@ sub MCP_dispatch {
     return MCP_deleteReading($name, $req)   if($action eq "delete_reading");
     return MCP_listFiles($name, $req)       if($action eq "list_files");
     return MCP_readFile($name, $req)        if($action eq "read_file");
+    return MCP_searchLog($name, $req)       if($action eq "search_log");
     return MCP_writeFile($name, $req, $level) if($action eq "write_file");
     return MCP_defineDevice($name, $req)    if($action eq "define_device");
     return MCP_modifyDevice($name, $req)    if($action eq "modify_device");
@@ -792,6 +795,56 @@ sub MCP_writeFile {
                             ".pm: 'reload' in FHEM noetig." });
 }
 
+# ----------------------------------------------------------------------------
+# search_log: durchsucht das FHEM-System-Logfile (global logfile).
+#   pattern     optionaler Perl-Regex (Default: alle Zeilen)
+#   ignoreCase  1 = Gross-/Kleinschreibung ignorieren
+#   limit       max. zurueckgegebene (juengste) Treffer (Default 100, max 1000)
+# Ein alternatives Logfile kann per Attribut logFile gesetzt werden.
+# Tokens werden aus den Zeilen entfernt (falls FHEMWEB das mcp-Kommando loggt).
+# ----------------------------------------------------------------------------
+sub MCP_scrubLog {
+    my ($l) = @_;
+    # "mcp <token> <base64>" (Leerzeichen, %20 oder + getrennt) redigieren.
+    $l =~ s/\bmcp(?:\s|%20|\+)+\S+(?:(?:\s|%20|\+)+\S+)?/mcp <redacted>/g;
+    return $l;
+}
+
+sub MCP_searchLog {
+    my ($name, $req) = @_;
+
+    my $lf = AttrVal($name, "logFile", "") || AttrVal("global", "logfile", "");
+    return MCP_err("no logfile configured (global logfile)") if($lf eq "" || $lf eq "-");
+    my $file = ResolveDateWildcards($lf, localtime());
+
+    my $limit = $req->{limit};
+    $limit = 100 if(!defined($limit) || $limit !~ /^\d+$/);
+    $limit = 1000 if($limit > 1000);
+    $limit = 1    if($limit < 1);
+
+    my $pattern = $req->{pattern};
+    my $re;
+    if(defined($pattern) && $pattern ne "") {
+        $re = $req->{ignoreCase} ? eval { qr/$pattern/i } : eval { qr/$pattern/ };
+        return MCP_err("invalid pattern: $@", 400) if(!$re);
+    }
+
+    my ($err, @lines) = FileRead($file);
+    return MCP_err("read log failed: $err") if(defined($err) && $err ne "");
+
+    my @hits = defined($re) ? grep { $_ =~ $re } @lines : @lines;
+    my $total = scalar(@hits);
+    @hits = @hits[ -$limit .. -1 ] if(@hits > $limit);   # juengste N
+    @hits = map { MCP_scrubLog($_) } @hits;
+
+    return MCP_ok({
+        file         => $file,
+        totalMatches => $total,
+        returned     => scalar(@hits),
+        matches      => \@hits,
+    });
+}
+
 # define/modify: admin-Scope, global per Attribut freigeschaltet, best-effort
 # Pattern-Filter gegen offensichtliche RCE. Restrisiko bleibt - siehe Kopf.
 sub MCP_defineDevice { return MCP_defmod(@_, 0); }
@@ -984,6 +1037,10 @@ sub MCP_err {
         <code>write</code>; das Schreiben von <code>.pm</code>-Dateien verlangt
         zusaetzlich den <code>admin</code>-Scope und
         <code>adminScopeAllowed=1</code> (Modul-Schreiben = RCE).</li>
+    <li><a id="MCP-attr-logFile"></a><b>logFile</b> &ndash; alternatives Logfile
+        fuer die Aktion <code>search_log</code> (Default: das <code>global
+        logfile</code>). Datumsplatzhalter wie <code>%Y</code>/<code>%m</code>
+        werden aufgeloest.</li>
     <li><a id="MCP-attr-defaultTtl"></a><b>defaultTtl</b> &ndash;
         Standard-Gueltigkeit eines Grants in Minuten (Default 60).</li>
     <li><a id="MCP-attr-maxTtl"></a><b>maxTtl</b> &ndash; Obergrenze fuer die
