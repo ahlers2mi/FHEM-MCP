@@ -6,4 +6,4 @@ durchgereicht. Über Erlaubt/Verboten entscheidet allein das FHEM-Modul
 98_MCP.pm.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
