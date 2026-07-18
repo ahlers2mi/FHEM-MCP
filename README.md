@@ -44,7 +44,7 @@ ohnehin erlauben.
 | Transport | Nur der MCP-Container ist im Internet erreichbar (Reverse Proxy, TLS). **Niemals FHEMWEB direkt exponieren.** |
 | Server-Zugang | Bearer-Token bei jedem Aufruf nötig (von Claude Code gesendet). |
 | Consent / Ablauf | Token wird **in FHEM von Hand erzeugt** (`set <mcp> grant`) und ist standardmäßig 1 h gültig → kein Dauerzugriff. |
-| Token-Speicherung | Nur als **SHA-256-Hash** und **nur im RAM**. Landet weder in `fhem.cfg`/Statefile noch im Git. FHEM-Neustart verwirft alle Tokens. |
+| Token-Speicherung | Nur als **SHA-256-Hash** (nie Klartext). Landet weder in `fhem.cfg`/Statefile noch im Git. Standardmäßig nur im RAM (Neustart verwirft alle Tokens); optional `attr mcp persistTokens 1` → Hashes im FHEM-Keyvalue-Store, überstehen den Neustart (abgelaufene werden verworfen). |
 | Scopes | `read` (lesen) · `write` (set/attr/setreading + CSS/JS schreiben) · `admin` (define/modify + `.pm` schreiben). |
 | Geräte-Allowlist | Raum `MCP` = nur lesbar, Raum `MCP_rw` = steuerbar (Default deny). |
 | Datei-Allowlist | Attribut `allowFiles`, jede Datei einzeln freigeben; `..`/absolute Pfade gesperrt. |

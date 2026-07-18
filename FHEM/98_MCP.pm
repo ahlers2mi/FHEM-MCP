@@ -79,11 +79,12 @@ my $MCP_singleton;
 sub MCP_Initialize {
     my ($hash) = @_;
 
-    $hash->{DefFn}   = \&MCP_Define;
-    $hash->{UndefFn} = \&MCP_Undef;
-    $hash->{SetFn}   = \&MCP_Set;
-    $hash->{GetFn}   = \&MCP_Get;
-    $hash->{AttrFn}  = \&MCP_Attr;
+    $hash->{DefFn}    = \&MCP_Define;
+    $hash->{UndefFn}  = \&MCP_Undef;
+    $hash->{SetFn}    = \&MCP_Set;
+    $hash->{GetFn}    = \&MCP_Get;
+    $hash->{AttrFn}   = \&MCP_Attr;
+    $hash->{NotifyFn} = \&MCP_Notify;   # laedt persistierte Tokens bei INITIALIZED
 
     $hash->{AttrList} =
           "disable:1,0 " .
@@ -95,6 +96,7 @@ sub MCP_Initialize {
           "maxTtl " .              # Obergrenze fuer ttl in Minuten (1440)
           "adminScopeAllowed:1,0 " . # define/modify global erlauben (Default 0)
           "adminDenyPattern:textField-long " . # Regex, der define/modify ablehnt
+          "persistTokens:1,0 " .   # Token-Hashes ueber Neustart hinweg ablegen (Default 0)
           $readingFnAttributes;
 
     # FHEM-Kommando "mcp" registrieren. Der MCP-Server ruft es ueber FHEMWEB
@@ -118,12 +120,65 @@ sub MCP_Define {
 
     $hash->{helper}{tokens} = {} if(!defined($hash->{helper}{tokens}));
     $MCP_singleton = $hash->{NAME};
+    $hash->{NOTIFYDEV} = "global";   # fuer INITIALIZED/REREADCFG (Token-Laden)
 
     readingsBeginUpdate($hash);
     readingsBulkUpdateIfChanged($hash, "state",       "active");
     readingsBulkUpdateIfChanged($hash, "activeTokens", 0);
     readingsEndUpdate($hash, 0);
 
+    # Bei laufendem System (reload / interaktives define) direkt laden; beim
+    # Systemstart passiert das ueber MCP_Notify (INITIALIZED), wenn die Attribute
+    # bereits gesetzt sind.
+    MCP_loadTokens($hash) if($init_done);
+
+    return undef;
+}
+
+# ----------------------------------------------------------------------------
+# MCP_Notify - laedt persistierte Tokens, sobald FHEM fertig geladen ist.
+# ----------------------------------------------------------------------------
+sub MCP_Notify {
+    my ($hash, $dev) = @_;
+    return if(!defined($dev) || ($dev->{NAME} // "") ne "global");
+    my $events = deviceEvents($dev, 0);
+    return if(!$events);
+    foreach my $e (@$events) {
+        MCP_loadTokens($hash) if($e =~ /^(?:INITIALIZED|REREADCFG)$/);
+    }
+    return undef;
+}
+
+# Token-Hashes (nur Hashes, nie Klartext) im FHEM-Keyvalue-Store ablegen -
+# NICHT in fhem.cfg. Nur wenn persistTokens=1.
+sub MCP_saveTokens {
+    my ($hash) = @_;
+    my $name = $hash->{NAME};
+    return if(!AttrVal($name, "persistTokens", 0));
+    my $json = eval { to_json($hash->{helper}{tokens} // {}) };
+    setKeyValue("MCP_tokens_$name", $json) if(defined($json));
+    return undef;
+}
+
+# Persistierte Token-Hashes laden, abgelaufene dabei verwerfen.
+sub MCP_loadTokens {
+    my ($hash) = @_;
+    my $name = $hash->{NAME};
+    return if(!AttrVal($name, "persistTokens", 0));
+    my ($err, $val) = getKeyValue("MCP_tokens_$name");
+    return if($err || !defined($val) || $val eq "");
+    my $data = eval { from_json($val) };
+    return if($@ || ref($data) ne "HASH");
+
+    my $now = time();
+    my %kept;
+    foreach my $k (keys %$data) {
+        next if(ref($data->{$k}) ne "HASH" || ($data->{$k}{exp} // 0) <= $now);
+        $kept{$k} = $data->{$k};
+    }
+    $hash->{helper}{tokens} = \%kept;
+    Log3($name, 3, "$name: ".scalar(keys %kept)." Token(s) aus dem Keyvalue-Store geladen");
+    MCP_refreshCount($hash);   # Zaehler aktualisieren + abgelaufene aus Store entfernen
     return undef;
 }
 
@@ -305,6 +360,22 @@ sub MCP_Attr {
         my $ok = eval { qr/$attrValue/; 1 };
         return "adminDenyPattern is not a valid regex: $@" if(!$ok);
     }
+    if($attrName eq "persistTokens") {
+        return "Invalid value $attrValue for persistTokens. Must be 0 or 1."
+            if($cmd eq "set" && $attrValue !~ /^[01]$/);
+        if($init_done) {
+            my $key = "MCP_tokens_$name";
+            if($cmd eq "set" && $attrValue eq "1") {
+                # aktuellen Stand sofort ablegen (AttrVal spiegelt den neuen Wert
+                # hier noch nicht, daher direkt schreiben).
+                my $h = $defs{$name};
+                my $json = eval { to_json(($h->{helper}{tokens}) // {}) };
+                setKeyValue($key, $json) if(defined($json));
+            } else {   # 0 oder del -> gespeicherte Tokens loeschen
+                setKeyValue($key, undef);
+            }
+        }
+    }
     return undef;
 }
 
@@ -340,6 +411,7 @@ sub MCP_refreshCount {
     my $n = scalar grep { $hash->{helper}{tokens}{$_}{exp} > $now }
                    keys %{$hash->{helper}{tokens}};
     readingsSingleUpdate($hash, "activeTokens", $n, 1);
+    MCP_saveTokens($hash);   # persistieren (nur wenn persistTokens=1)
     return $n;
 }
 
@@ -962,9 +1034,13 @@ sub MCP_err {
   </p>
   <p><b>Sicherheitsmodell</b></p>
   <ul>
-    <li>Tokens existieren nur als SHA-256-Hash und nur im Speicher. Sie landen
-        weder in der <code>fhem.cfg</code> noch im Statefile (und damit nicht
-        im Git). Ein FHEM-Neustart verwirft alle Tokens (gewollt ephemer).</li>
+    <li>Tokens existieren nur als SHA-256-Hash. Sie landen weder in der
+        <code>fhem.cfg</code> noch im Statefile (und damit nicht im Git).
+        Standardmaessig nur im Speicher &ndash; ein FHEM-Neustart verwirft dann
+        alle Tokens (ephemer). Mit <code>attr &lt;name&gt; persistTokens 1</code>
+        werden die Hashes im FHEM-Keyvalue-Store abgelegt und ueberstehen einen
+        Neustart (nur Hashes, kein Klartext; abgelaufene werden beim Laden
+        verworfen).</li>
     <li>Geraete-Allowlist ueber Raeume: Raum <code>MCP</code> = nur lesbar,
         Raum <code>MCP_rw</code> = les- und steuerbar (konfigurierbar ueber die
         Attribute <code>readRoom</code>/<code>writeRoom</code>).</li>
@@ -1053,6 +1129,12 @@ sub MCP_err {
         Regex, der define/modify-Eingaben ablehnt (best-effort Schutz gegen
         offensichtliche RCE; Default blockiert u. a. <code>system(</code>,
         Backticks, <code>qx</code>, <code>exec</code>, <code>open</code>).</li>
+    <li><a id="MCP-attr-persistTokens"></a><b>persistTokens</b> 1|0 &ndash;
+        legt die Token-<i>Hashes</i> im FHEM-Keyvalue-Store ab (nicht in
+        <code>fhem.cfg</code>), sodass sie einen Neustart ueberstehen (Default 0
+        = nur im Speicher). Es werden nur Hashes gespeichert (kein Klartext),
+        abgelaufene Tokens werden beim Laden verworfen. Auf 0 setzen loescht den
+        gespeicherten Stand.</li>
     <li><b>disable</b> 1|0 &ndash; deaktiviert die gesamte Schnittstelle.</li>
   </ul>
   <br>
