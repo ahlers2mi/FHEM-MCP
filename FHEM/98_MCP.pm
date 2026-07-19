@@ -519,16 +519,24 @@ sub MCP_devRooms {
     return grep { /\S/ } split(/\s*,\s*/, AttrVal($dev, "room", ""));
 }
 
-# darf das Geraet gelesen werden? (liegt im Lese- ODER Schreib-Raum)
+# darf das Geraet gelesen werden? (liegt im Lese- ODER Schreib-Raum;
+# readRoom/writeRoom = "*" gibt ALLE Geraete frei)
 sub MCP_canRead {
     my ($name, $dev) = @_;
+    return 0 if(!defined($defs{$dev}));
+    return 1 if(MCP_readRoom($name) eq "*" || MCP_writeRoom($name) eq "*");
     my %r = map { $_ => 1 } MCP_devRooms($dev);
     return ($r{ MCP_readRoom($name) } || $r{ MCP_writeRoom($name) }) ? 1 : 0;
 }
 
-# darf das Geraet geschrieben werden? (liegt im Schreib-Raum)
+# darf das Geraet geschrieben werden? (liegt im Schreib-Raum; writeRoom = "*"
+# gibt ALLE Geraete zum Schreiben frei). Das MCP-Geraet selbst ist nie
+# schreibbar (sonst koennte man ueber set_device Tokens verwalten/widerrufen).
 sub MCP_canWrite {
     my ($name, $dev) = @_;
+    return 0 if(!defined($defs{$dev}));
+    return 0 if($dev eq $name || ($defs{$dev}{TYPE} // "") eq "MCP");
+    return 1 if(MCP_writeRoom($name) eq "*");
     my %r = map { $_ => 1 } MCP_devRooms($dev);
     return $r{ MCP_writeRoom($name) } ? 1 : 0;
 }
@@ -618,8 +626,13 @@ sub MCP_listDevices {
     my $writeRoom = MCP_writeRoom($name);
 
     my %seen;
-    my @devs = grep { !$seen{$_}++ }
-               (devspec2array("room=$readRoom"), devspec2array("room=$writeRoom"));
+    my @devs;
+    if($readRoom eq "*" || $writeRoom eq "*") {
+        @devs = grep { !$seen{$_}++ } devspec2array("TYPE=.*");   # alle Geraete
+    } else {
+        @devs = grep { !$seen{$_}++ }
+                (devspec2array("room=$readRoom"), devspec2array("room=$writeRoom"));
+    }
 
     # optionaler Typ-Filter
     my $typeFilter = $req->{type};
@@ -738,7 +751,7 @@ sub MCP_setAttribute {
     # room darf gesetzt werden, aber das Geraet darf sich nicht selbst aus der
     # Allowlist werfen: enthaelt der neue Wert weder read- noch writeRoom, wird
     # der writeRoom automatisch ergaenzt (Geraet bleibt steuerbar).
-    if($aname eq "room") {
+    if($aname eq "room" && MCP_writeRoom($name) ne "*") {
         my %r = map { $_ => 1 } grep { /\S/ } split(/\s*,\s*/, $aval);
         if(!$r{ MCP_readRoom($name) } && !$r{ MCP_writeRoom($name) }) {
             $aval = ($aval ne "" ? "$aval," : "") . MCP_writeRoom($name);
@@ -953,7 +966,7 @@ sub MCP_defmod {
     # in der Allowlist ist und weiterbearbeitet werden kann (sonst: anlegen und
     # dann kein Zugriff mehr). Vorhandene Raeume bleiben erhalten.
     my $assigned = "";
-    if(!$isModify) {
+    if(!$isModify && MCP_writeRoom($name) ne "*") {
         my $wr = MCP_writeRoom($name);
         my %r  = map { $_ => 1 } MCP_devRooms($dev);
         if(!$r{$wr} && !$r{ MCP_readRoom($name) }) {
@@ -1099,10 +1112,13 @@ sub MCP_err {
   <b>Attributes</b>
   <ul>
     <li><a id="MCP-attr-readRoom"></a><b>readRoom</b> &ndash; Raumname fuer
-        nur-lesbare Geraete (Default <code>MCP</code>).</li>
+        nur-lesbare Geraete (Default <code>MCP</code>). <code>*</code> gibt
+        <b>alle</b> Geraete zum Lesen frei.</li>
     <li><a id="MCP-attr-writeRoom"></a><b>writeRoom</b> &ndash; Raumname fuer
         steuerbare Geraete (Default <code>MCP_rw</code>). Diese sind implizit
-        auch lesbar.</li>
+        auch lesbar. <code>*</code> gibt <b>alle</b> Geraete zum Steuern frei
+        (Vorsicht: hebt die Geraete-Allowlist auf; das MCP-Geraet selbst bleibt
+        aber immer schreibgeschuetzt).</li>
     <li><a id="MCP-attr-allowFiles"></a><b>allowFiles</b> &ndash; einzeln
         freigegebene Dateien fuer Lese-/Schreibzugriff (eine Pfad-Zeile pro
         Datei, relativ zum FHEM-Basisverzeichnis wie im FHEMWEB-Editor;

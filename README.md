@@ -46,7 +46,7 @@ ohnehin erlauben.
 | Consent / Ablauf | Token wird **in FHEM von Hand erzeugt** (`set <mcp> grant`) und ist standardmäßig 1 h gültig → kein Dauerzugriff. |
 | Token-Speicherung | Nur als **SHA-256-Hash** (nie Klartext). Landet weder in `fhem.cfg`/Statefile noch im Git. Standardmäßig nur im RAM (Neustart verwirft alle Tokens); optional `attr mcp persistTokens 1` → Hashes im FHEM-Keyvalue-Store, überstehen den Neustart (abgelaufene werden verworfen). |
 | Scopes | `read` (lesen) · `write` (set/attr/setreading + CSS/JS schreiben) · `admin` (define/modify + `.pm` schreiben). |
-| Geräte-Allowlist | Raum `MCP` = nur lesbar, Raum `MCP_rw` = steuerbar (Default deny). |
+| Geräte-Allowlist | Raum `MCP` = nur lesbar, Raum `MCP_rw` = steuerbar (Default deny). `readRoom`/`writeRoom` = `*` gibt **alle** Geräte frei (hebt die Allowlist auf; MCP-Gerät selbst bleibt schreibgeschützt). |
 | Datei-Allowlist | Attribut `allowFiles`, jede Datei einzeln freigeben; `..`/absolute Pfade gesperrt. |
 | Kein Generik-Tool | Kein „beliebigen FHEM-Befehl ausführen". Nur strukturierte, geprüfte Aktionen; Injection-Zeichen werden abgewiesen. |
 | RCE-Schutz | `define`/`modify` und `.pm`-Schreiben hängen am `admin`-Scope **und** `adminScopeAllowed=1` **und** einem best-effort Pattern-Filter. |
