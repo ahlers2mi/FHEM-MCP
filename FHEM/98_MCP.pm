@@ -151,10 +151,16 @@ sub MCP_Notify {
 
 # Token-Hashes (nur Hashes, nie Klartext) im FHEM-Keyvalue-Store ablegen -
 # NICHT in fhem.cfg. Nur wenn persistTokens=1.
+#
+# WICHTIG: Vor dem ersten Laden wird NICHT gespeichert. Sonst koennte ein
+# Aufruf, der waehrend des Systemstarts (vor INITIALIZED) den Zaehler
+# aktualisiert, den gespeicherten Stand mit dem noch leeren Hash ueberschreiben
+# - die Tokens waeren dann endgueltig weg.
 sub MCP_saveTokens {
     my ($hash) = @_;
     my $name = $hash->{NAME};
     return if(!AttrVal($name, "persistTokens", 0));
+    return if(!$hash->{helper}{tokensLoaded});
     my $json = eval { to_json($hash->{helper}{tokens} // {}) };
     setKeyValue("MCP_tokens_$name", $json) if(defined($json));
     return undef;
@@ -164,21 +170,45 @@ sub MCP_saveTokens {
 sub MCP_loadTokens {
     my ($hash) = @_;
     my $name = $hash->{NAME};
-    return if(!AttrVal($name, "persistTokens", 0));
-    my ($err, $val) = getKeyValue("MCP_tokens_$name");
-    return if($err || !defined($val) || $val eq "");
-    my $data = eval { from_json($val) };
-    return if($@ || ref($data) ne "HASH");
 
-    my $now = time();
-    my %kept;
-    foreach my $k (keys %$data) {
-        next if(ref($data->{$k}) ne "HASH" || ($data->{$k}{exp} // 0) <= $now);
-        $kept{$k} = $data->{$k};
+    if(!AttrVal($name, "persistTokens", 0)) {
+        # Persistenz aus: nichts zu laden, aber als "geladen" markieren, damit
+        # ein spaeteres Einschalten des Attributs sofort speichern darf.
+        $hash->{helper}{tokensLoaded} = 1;
+        return undef;
     }
-    $hash->{helper}{tokens} = \%kept;
-    Log3($name, 3, "$name: ".scalar(keys %kept)." Token(s) aus dem Keyvalue-Store geladen");
+
+    my ($err, $val) = getKeyValue("MCP_tokens_$name");
+    my $data = (!$err && defined($val) && $val ne "") ? eval { from_json($val) } : undef;
+
+    if(ref($data) eq "HASH") {
+        my $now = time();
+        my %kept;
+        foreach my $k (keys %$data) {
+            next if(ref($data->{$k}) ne "HASH" || ($data->{$k}{exp} // 0) <= $now);
+            $kept{$k} = $data->{$k};
+        }
+        # Bereits im Speicher vorhandene Tokens (z. B. nach reload) behalten.
+        $kept{$_} = $hash->{helper}{tokens}{$_} foreach keys %{$hash->{helper}{tokens} // {}};
+        $hash->{helper}{tokens} = \%kept;
+        Log3($name, 3, "$name: ".scalar(keys %kept).
+                       " Token(s) aus dem Keyvalue-Store geladen");
+    } else {
+        Log3($name, 4, "$name: keine persistierten Tokens vorhanden");
+    }
+
+    # Erst jetzt darf gespeichert werden (siehe MCP_saveTokens).
+    $hash->{helper}{tokensLoaded} = 1;
     MCP_refreshCount($hash);   # Zaehler aktualisieren + abgelaufene aus Store entfernen
+    return undef;
+}
+
+# Sicherstellen, dass die persistierten Tokens geladen sind. Wird bei jedem
+# Zugriff aufgerufen, damit das Laden nicht allein vom INITIALIZED-Event
+# abhaengt (z. B. wenn das Modul erst nach dem Start nachgeladen wird).
+sub MCP_ensureLoaded {
+    my ($hash) = @_;
+    MCP_loadTokens($hash) if(!$hash->{helper}{tokensLoaded});
     return undef;
 }
 
@@ -197,6 +227,8 @@ sub MCP_Undef {
 sub MCP_Set {
     my ($hash, $name, $cmd, @args) = @_;
     return "\"set $name\" needs at least one argument" if(!defined($cmd));
+
+    MCP_ensureLoaded($hash);
 
     # FHEMWEB fuegt die Werte eines widgetList-Widgets mit Komma zu EINEM
     # Argument zusammen (die GUI sendet z. B. "extend Claude-App,60"). Argumente
@@ -369,6 +401,8 @@ sub MCP_Attr {
                 # aktuellen Stand sofort ablegen (AttrVal spiegelt den neuen Wert
                 # hier noch nicht, daher direkt schreiben).
                 my $h = $defs{$name};
+                # Bewusstes Einschalten = der Stand im Speicher ist der gueltige.
+                $h->{helper}{tokensLoaded} = 1;
                 my $json = eval { to_json(($h->{helper}{tokens}) // {}) };
                 setKeyValue($key, $json) if(defined($json));
             } else {   # 0 oder del -> gespeicherte Tokens loeschen
@@ -476,6 +510,7 @@ sub MCP_tokenLevel {
 sub MCP_Get {
     my ($hash, $name, $cmd, @args) = @_;
     return "\"get $name\" needs at least one argument" if(!defined($cmd));
+    MCP_ensureLoaded($hash);
     return MCP_tokenTable($hash) if($cmd eq "tokens");
     return "Unknown argument $cmd, choose one of tokens:noArg";
 }
@@ -552,6 +587,8 @@ sub MCP_command {
     my $hash = $defs{$name};
 
     return MCP_err("disabled") if(IsDisabled($name));
+
+    MCP_ensureLoaded($hash);
 
     $param = "" if(!defined($param));
     my ($token, $b64) = split(/\s+/, $param, 2);
