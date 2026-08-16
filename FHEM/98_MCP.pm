@@ -79,12 +79,13 @@ my $MCP_singleton;
 sub MCP_Initialize {
     my ($hash) = @_;
 
-    $hash->{DefFn}    = \&MCP_Define;
-    $hash->{UndefFn}  = \&MCP_Undef;
-    $hash->{SetFn}    = \&MCP_Set;
-    $hash->{GetFn}    = \&MCP_Get;
-    $hash->{AttrFn}   = \&MCP_Attr;
-    $hash->{NotifyFn} = \&MCP_Notify;   # laedt persistierte Tokens bei INITIALIZED
+    $hash->{DefFn}      = \&MCP_Define;
+    $hash->{UndefFn}    = \&MCP_Undef;
+    $hash->{SetFn}      = \&MCP_Set;
+    $hash->{GetFn}      = \&MCP_Get;
+    $hash->{AttrFn}     = \&MCP_Attr;
+    $hash->{NotifyFn}   = \&MCP_Notify;   # laedt persistierte Tokens bei INITIALIZED
+    $hash->{ShutdownFn} = \&MCP_Shutdown; # sichert die Tokens beim Herunterfahren
 
     $hash->{AttrList} =
           "disable:1,0 " .
@@ -200,6 +201,14 @@ sub MCP_loadTokens {
     # Erst jetzt darf gespeichert werden (siehe MCP_saveTokens).
     $hash->{helper}{tokensLoaded} = 1;
     MCP_refreshCount($hash);   # Zaehler aktualisieren + abgelaufene aus Store entfernen
+    return undef;
+}
+
+# Beim Herunterfahren den aktuellen Stand sichern (zusaetzlicher Sicherungs-
+# punkt neben dem Speichern nach jeder Aenderung).
+sub MCP_Shutdown {
+    my ($hash) = @_;
+    MCP_saveTokens($hash);
     return undef;
 }
 
@@ -511,8 +520,66 @@ sub MCP_Get {
     my ($hash, $name, $cmd, @args) = @_;
     return "\"get $name\" needs at least one argument" if(!defined($cmd));
     MCP_ensureLoaded($hash);
-    return MCP_tokenTable($hash) if($cmd eq "tokens");
-    return "Unknown argument $cmd, choose one of tokens:noArg";
+    return MCP_tokenTable($hash)   if($cmd eq "tokens");
+    return MCP_persistState($hash) if($cmd eq "persistState");
+    return "Unknown argument $cmd, choose one of tokens:noArg persistState:noArg";
+}
+
+# Diagnose: zeigt, ob die Persistenz greift und was im Keyvalue-Store liegt.
+# Gibt KEINE Token-Hashes aus, nur Anzahl/Status.
+sub MCP_persistState {
+    my ($hash) = @_;
+    my $name = $hash->{NAME};
+    my @o;
+
+    my $on = AttrVal($name, "persistTokens", 0);
+    push @o, "Modul-Version:      ".($hash->{FVERSION} // "?");
+    push @o, "persistTokens:      ".($on ? "1 (aktiv)" : "0 (AUS - Tokens sind nur im Speicher!)");
+    push @o, "tokensLoaded-Flag:  ".($hash->{helper}{tokensLoaded} ? "ja" : "nein (noch nicht geladen)");
+    push @o, "Tokens im Speicher: ".scalar(keys %{$hash->{helper}{tokens} // {}});
+
+    my ($err, $val) = getKeyValue("MCP_tokens_$name");
+    if(defined($err) && $err ne "") {
+        push @o, "Keyvalue-Store:     FEHLER beim Lesen: $err";
+    } elsif(!defined($val) || $val eq "") {
+        push @o, "Keyvalue-Store:     leer (nichts gespeichert)";
+    } else {
+        my $data = eval { from_json($val) };
+        if(ref($data) ne "HASH") {
+            push @o, "Keyvalue-Store:     unlesbar (kein JSON), ".length($val)." Bytes";
+        } else {
+            my $now = time();
+            my $act = scalar grep { ($data->{$_}{exp} // 0) > $now } keys %$data;
+            push @o, "Keyvalue-Store:     ".scalar(keys %$data)." Token(s), davon $act aktiv";
+            foreach my $k (sort { ($data->{$a}{issued}//0) <=> ($data->{$b}{issued}//0) } keys %$data) {
+                my $t = $data->{$k};
+                push @o, sprintf("   - %-8s %-16s %-6s %s%s",
+                    $t->{id} // "-",
+                    (defined($t->{name}) && $t->{name} ne "") ? $t->{name} : "-",
+                    $t->{scope} // "-",
+                    FmtDateTime($t->{exp} // 0),
+                    (($t->{exp} // 0) > $now ? "" : "  (ABGELAUFEN)"));
+            }
+        }
+    }
+
+    # Schreibtest: prueft, ob setKeyValue ueberhaupt dauerhaft schreiben kann.
+    my $probe = "MCP_probe_$name";
+    my $stamp = time();
+    setKeyValue($probe, "$stamp");
+    my ($perr, $pval) = getKeyValue($probe);
+    setKeyValue($probe, undef);
+    push @o, "Schreibtest:        ".
+             ((!$perr && defined($pval) && $pval eq "$stamp")
+                ? "ok (Keyvalue-Store beschreibbar)"
+                : "FEHLGESCHLAGEN - setKeyValue schreibt nicht!");
+
+    push @o, "";
+    push @o, $on
+        ? "Erwartung: nach einem Neustart sollten die aktiven Tokens oben unter"
+          ." 'Keyvalue-Store' stehen und geladen werden."
+        : "Zum Aktivieren:  attr $name persistTokens 1";
+    return join("\n", @o);
 }
 
 # Texttabelle aller Tokens (Klartext ist nicht gespeichert und nicht zeigbar).
@@ -582,7 +649,13 @@ sub MCP_canWrite {
 sub MCP_command {
     my ($cl, $param) = @_;
 
+    # Nach einem "reload 98_MCP" ist die Modul-Variable leer (Datei wird neu
+    # eingelesen), das Geraet existiert aber weiter -> dann neu ermitteln.
     my $name = $MCP_singleton;
+    if(!defined($name) || !$defs{$name}) {
+        ($name) = devspec2array("TYPE=MCP");
+        $MCP_singleton = $name if(defined($name) && $defs{$name});
+    }
     return MCP_err("no MCP device defined") if(!defined($name) || !$defs{$name});
     my $hash = $defs{$name};
 
@@ -1142,6 +1215,12 @@ sub MCP_err {
         <code>id</code>, <code>name</code>, <code>scope</code>, Ablaufzeitpunkt
         und Status (aktiv/abgelaufen). Der Token-Klartext wird dabei nicht
         angezeigt (nur der Hash ist gespeichert).</li>
+    <li><a id="MCP-get-persistState"></a><b>persistState</b> &ndash; Diagnose der
+        Token-Persistenz: Modul-Version, ob <code>persistTokens</code> aktiv ist,
+        ob bereits geladen wurde, Anzahl Tokens im Speicher, Inhalt des
+        Keyvalue-Stores (id/name/scope/Ablauf) und ein Schreibtest des Stores.
+        Hilfreich, wenn Tokens einen Neustart nicht ueberleben. Es werden keine
+        Token-Hashes ausgegeben.</li>
   </ul>
   <br>
 
