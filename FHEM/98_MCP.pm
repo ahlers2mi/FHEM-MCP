@@ -185,22 +185,30 @@ sub MCP_loadTokens {
     if(ref($data) eq "HASH") {
         my $now = time();
         my %kept;
+        # ABGELAUFENE TOKENS WERDEN BEWUSST MITGELADEN: "set <name> extend"
+        # reaktiviert sie (der Token-String bleibt gueltig, ein verbundener
+        # Client muss sich also nicht neu einrichten). Im Speicher werden sie
+        # aus demselben Grund nicht geloescht - beides muss gleich sein, sonst
+        # ist ein abgelaufenes Token nach einem Neustart unwiederbringlich weg.
+        # Aufgeraeumt wird nur explizit ueber "set <name> revokeExpired".
         foreach my $k (keys %$data) {
-            next if(ref($data->{$k}) ne "HASH" || ($data->{$k}{exp} // 0) <= $now);
+            next if(ref($data->{$k}) ne "HASH" || !defined($data->{$k}{exp}));
             $kept{$k} = $data->{$k};
         }
         # Bereits im Speicher vorhandene Tokens (z. B. nach reload) behalten.
         $kept{$_} = $hash->{helper}{tokens}{$_} foreach keys %{$hash->{helper}{tokens} // {}};
         $hash->{helper}{tokens} = \%kept;
-        Log3($name, 3, "$name: ".scalar(keys %kept).
-                       " Token(s) aus dem Keyvalue-Store geladen");
+        my $act = scalar grep { ($kept{$_}{exp} // 0) > $now } keys %kept;
+        Log3($name, 3, "$name: ".scalar(keys %kept)." Token(s) aus dem Keyvalue-Store ".
+                       "geladen ($act aktiv, ".(scalar(keys %kept) - $act).
+                       " abgelaufen - per extend reaktivierbar)");
     } else {
         Log3($name, 4, "$name: keine persistierten Tokens vorhanden");
     }
 
     # Erst jetzt darf gespeichert werden (siehe MCP_saveTokens).
     $hash->{helper}{tokensLoaded} = 1;
-    MCP_refreshCount($hash);   # Zaehler aktualisieren + abgelaufene aus Store entfernen
+    MCP_refreshCount($hash);
     return undef;
 }
 
@@ -1162,8 +1170,11 @@ sub MCP_err {
         Standardmaessig nur im Speicher &ndash; ein FHEM-Neustart verwirft dann
         alle Tokens (ephemer). Mit <code>attr &lt;name&gt; persistTokens 1</code>
         werden die Hashes im FHEM-Keyvalue-Store abgelegt und ueberstehen einen
-        Neustart (nur Hashes, kein Klartext; abgelaufene werden beim Laden
-        verworfen).</li>
+        Neustart (nur Hashes, kein Klartext). <b>Auch abgelaufene Tokens bleiben
+        erhalten</b>, damit sie per <code>set &lt;name&gt; extend</code>
+        reaktiviert werden koennen &ndash; ein verbundener Client muss sich dann
+        nicht neu einrichten. Aufgeraeumt wird nur ueber
+        <code>revokeExpired</code>.</li>
     <li>Geraete-Allowlist ueber Raeume: Raum <code>MCP</code> = nur lesbar,
         Raum <code>MCP_rw</code> = les- und steuerbar (konfigurierbar ueber die
         Attribute <code>readRoom</code>/<code>writeRoom</code>).</li>
