@@ -32,7 +32,7 @@
 #      MCP-Container erlaubt werden.
 #
 # Autor:    ahlers2mi
-# Version:  v0.4.0
+# Version:  v0.4.1
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
 
@@ -115,7 +115,7 @@ sub MCP_Define {
     my ($hash, $def) = @_;
     my @param = split('[ \t]+', $def);
 
-    $hash->{FVERSION} = "98_MCP.pm:v0.4.0";
+    $hash->{FVERSION} = "98_MCP.pm:v0.4.1";
 
     return "Usage: define <name> MCP" if(int(@param) != 2);
 
@@ -734,7 +734,7 @@ sub MCP_dispatch {
 # Aktionen
 # ----------------------------------------------------------------------------
 sub MCP_ping {
-    return MCP_ok({ pong => 1, version => "0.4.0" });
+    return MCP_ok({ pong => 1, version => "0.4.1" });
 }
 
 sub MCP_listDevices {
