@@ -32,7 +32,7 @@
 #      MCP-Container erlaubt werden.
 #
 # Autor:    ahlers2mi
-# Version:  v0.5.0
+# Version:  v0.5.1
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
 
@@ -117,7 +117,7 @@ sub MCP_Define {
     my ($hash, $def) = @_;
     my @param = split('[ \t]+', $def);
 
-    $hash->{FVERSION} = "98_MCP.pm:v0.5.0";
+    $hash->{FVERSION} = "98_MCP.pm:v0.5.1";
 
     return "Usage: define <name> MCP" if(int(@param) != 2);
 
@@ -737,7 +737,7 @@ sub MCP_dispatch {
 # Aktionen
 # ----------------------------------------------------------------------------
 sub MCP_ping {
-    return MCP_ok({ pong => 1, version => "0.5.0" });
+    return MCP_ok({ pong => 1, version => "0.5.1" });
 }
 
 sub MCP_listDevices {
@@ -1089,9 +1089,12 @@ sub MCP_dirAllowed {
 
 sub MCP_dfAll {
     my @fs;
-    my $out = qx(df -Pk 2>/dev/null);
-    foreach my $l (split(/\n/, $out // "")) {
-        next if($l =~ /^Filesystem/i);
+    # LC_ALL=C: sonst kommt die Kopfzeile lokalisiert ("Dateisystem ...") und
+    # "Eingehaengt auf" zerfaellt beim Splitten. Kopfzeile = immer Zeile 1.
+    my $out = qx(LC_ALL=C df -Pk 2>/dev/null);
+    my @lines = split(/\n/, $out // "");
+    shift @lines;
+    foreach my $l (@lines) {
         my @c = split(/\s+/, $l, 6);
         next if(@c < 6);
         next if($c[0] =~ /^(tmpfs|devtmpfs|udev|overlay|shm|none)$/);
@@ -1169,8 +1172,8 @@ sub MCP_diskUsage {
     splice(@gl, $limit) if(@gl > $limit);
     my @sl = sort { $subdirs{$b}{bytes} <=> $subdirs{$a}{bytes} } keys %subdirs;
 
-    my $dfPath = qx(df -Pk \Q$real\E 2>/dev/null);
-    my ($dfLine) = grep { !/^Filesystem/i } split(/\n/, $dfPath // "");
+    my $dfPath = qx(LC_ALL=C df -Pk \Q$real\E 2>/dev/null);
+    my (undef, $dfLine) = split(/\n/, $dfPath // "");
     my $fs;
     if(defined($dfLine)) {
         my @c = split(/\s+/, $dfLine, 6);
