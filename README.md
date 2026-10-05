@@ -72,6 +72,7 @@ ohnehin erlauben.
 | `list_files()` | read | Freigegebene Dateien (`allowFiles`) |
 | `read_file(path)` | read | Datei lesen |
 | `search_log(pattern?, limit?, ignore_case?)` | read | FHEM-System-Log durchsuchen (Regex, jüngste N Treffer; Tokens redigiert) |
+| `disk_usage(path?, limit?, min_size_kb?)` | read | Plattenbelegung: größte Dateien, Summe je Dateireihe ohne Datum, Unterordner, df aller Dateisysteme (nur Verzeichnisse aus `allowDirs`, Default `.`) |
 | `write_file(path, content)` | write¹ | Datei schreiben (¹`.pm` ⇒ admin) |
 | `define_device(device, definition)` | admin | `defmod …`; neu angelegtes Gerät kommt automatisch in den writeRoom (sofort weiter nutzbar) |
 | `modify_device(device, definition)` | admin | `modify …` |
@@ -99,6 +100,8 @@ attr Lampe_Wohnzimmer room MCP_rw     # lesbar + steuerbar
 attr Aussentemperatur room MCP        # nur lesbar
 # Dateien freigeben (optional)
 attr mcp allowFiles www/pgm2/mystyle.css
+# Verzeichnisse für disk_usage (optional, Default: .)
+attr mcp allowDirs .
 ```
 
 ### 2. Abgeschottete FHEMWEB-Instanz für den MCP-Server (empfohlen)

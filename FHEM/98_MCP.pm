@@ -32,7 +32,7 @@
 #      MCP-Container erlaubt werden.
 #
 # Autor:    ahlers2mi
-# Version:  v0.4.1
+# Version:  v0.5.0
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
 
@@ -64,6 +64,7 @@ my %MCP_actionLevel = (
     list_files    => 1,
     read_file     => 1,
     search_log    => 1,
+    disk_usage    => 1,
     write_file    => 2,   # .pm-Dateien verlangen zusaetzlich admin (s. MCP_writeFile)
     define_device => 3,
     modify_device => 3,
@@ -93,6 +94,7 @@ sub MCP_Initialize {
           "writeRoom " .           # Raumname fuer steuerbar  (Default MCP_rw)
           "allowFiles:textField-long " . # einzeln freigegebene Dateien (eine pro Zeile, *-Glob)
           "logFile " .             # alternatives Logfile fuer search_log (Default: global logfile)
+          "allowDirs " .           # Verzeichnisse fuer disk_usage (Default ".")
           "defaultTtl " .          # Default-Gueltigkeit eines Grants in Minuten (60)
           "maxTtl " .              # Obergrenze fuer ttl in Minuten (1440)
           "adminScopeAllowed:1,0 " . # define/modify global erlauben (Default 0)
@@ -115,7 +117,7 @@ sub MCP_Define {
     my ($hash, $def) = @_;
     my @param = split('[ \t]+', $def);
 
-    $hash->{FVERSION} = "98_MCP.pm:v0.4.1";
+    $hash->{FVERSION} = "98_MCP.pm:v0.5.0";
 
     return "Usage: define <name> MCP" if(int(@param) != 2);
 
@@ -723,6 +725,7 @@ sub MCP_dispatch {
     return MCP_listFiles($name, $req)       if($action eq "list_files");
     return MCP_readFile($name, $req)        if($action eq "read_file");
     return MCP_searchLog($name, $req)       if($action eq "search_log");
+    return MCP_diskUsage($name, $req)       if($action eq "disk_usage");
     return MCP_writeFile($name, $req, $level) if($action eq "write_file");
     return MCP_defineDevice($name, $req)    if($action eq "define_device");
     return MCP_modifyDevice($name, $req)    if($action eq "modify_device");
@@ -734,7 +737,7 @@ sub MCP_dispatch {
 # Aktionen
 # ----------------------------------------------------------------------------
 sub MCP_ping {
-    return MCP_ok({ pong => 1, version => "0.4.1" });
+    return MCP_ok({ pong => 1, version => "0.5.0" });
 }
 
 sub MCP_listDevices {
@@ -1048,6 +1051,156 @@ sub MCP_searchLog {
     });
 }
 
+# ----------------------------------------------------------------------------
+# disk_usage: Groesse von Verzeichnissen/Dateien ermitteln (z. B. "welche Logs
+# fressen die Platte?"). Liefert nur Metadaten (Name, Groesse, Datum), keinen
+# Inhalt. Erlaubt sind nur Verzeichnisse aus dem Attribut allowDirs
+# (Default "."), relativ zum FHEM-Basisverzeichnis.
+#   path       Verzeichnis (Default "log"), muss in/unter allowDirs liegen
+#   limit      Anzahl groesster Dateien (Default 30, max 500)
+#   minSizeKB  nur Dateien ab dieser Groesse auflisten (Default 0)
+# Zusaetzlich: Dateien gruppiert nach Namen ohne Datum (FileLog-%Y-Reihen),
+# Unterverzeichnisse und Fuellstand aller Dateisysteme (df).
+# Schutz gegen Freeze: max. 100000 Dateien bzw. 10 s, dann truncated=1.
+# ----------------------------------------------------------------------------
+sub MCP_allowedDirs {
+    my ($name) = @_;
+    my @out;
+    foreach my $d (split(/[\s,]+/, AttrVal($name, "allowDirs", "."))) {
+        next if($d eq "" || $d =~ /^#/);
+        $d =~ s{/+$}{} if($d ne "/");
+        push @out, $d;
+    }
+    return @out;
+}
+
+sub MCP_dirAllowed {
+    my ($name, $path) = @_;
+    return 0 if(!defined($path) || $path eq "");
+    return 0 if($path =~ m{(^|/)\.\.(/|$)});   # kein Path-Traversal
+    return 0 if($path =~ m{^/});               # keine absoluten Pfade
+    $path =~ s{/+$}{};
+    foreach my $d (MCP_allowedDirs($name)) {
+        return 1 if($d eq ".");                  # ganzes FHEM-Verzeichnis
+        return 1 if($path eq $d || index($path, "$d/") == 0);
+    }
+    return 0;
+}
+
+sub MCP_dfAll {
+    my @fs;
+    my $out = qx(df -Pk 2>/dev/null);
+    foreach my $l (split(/\n/, $out // "")) {
+        next if($l =~ /^Filesystem/i);
+        my @c = split(/\s+/, $l, 6);
+        next if(@c < 6);
+        next if($c[0] =~ /^(tmpfs|devtmpfs|udev|overlay|shm|none)$/);
+        next if($c[5] =~ m{^/(proc|sys|dev|run)(/|$)});
+        push @fs, { device => $c[0], sizeKB => $c[1]+0, usedKB => $c[2]+0,
+                    availKB => $c[3]+0, usePercent => $c[4], mount => $c[5] };
+    }
+    return \@fs;
+}
+
+sub MCP_diskUsage {
+    my ($name, $req) = @_;
+    require File::Find;
+    require Cwd;
+
+    my $path = $req->{path} // "log";
+    $path = "log" if($path eq "");
+    $path =~ s{/+$}{};
+    return MCP_err("dir '$path' not in allowDirs (".
+                   join(" ", MCP_allowedDirs($name)).")", 403)
+        if(!MCP_dirAllowed($name, $path));
+    return MCP_err("'$path' is not a directory", 404) if(!-d $path);
+
+    my $limit = $req->{limit};
+    $limit = 30  if(!defined($limit) || $limit !~ /^\d+$/);
+    $limit = 500 if($limit > 500);
+    $limit = 1   if($limit < 1);
+    my $minKB = $req->{minSizeKB};
+    $minKB = 0 if(!defined($minKB) || $minKB !~ /^\d+$/);
+
+    my $real = Cwd::abs_path($path) // $path;
+    my ($total, $count, $truncated) = (0, 0, 0);
+    my (@files, %groups, %subdirs, @links);
+    my $t0 = time();
+    my $maxFiles = 100000;
+
+    File::Find::find({
+        no_chdir => 1,
+        follow   => 0,
+        wanted   => sub {
+            return if($truncated);
+            if($count >= $maxFiles || time() - $t0 > 10) {
+                $truncated = 1;
+                $File::Find::prune = 1;
+                return;
+            }
+            my $f = $File::Find::name;
+            if(-l $f) {   # Symlinks nicht verfolgen, Verzeichnis-Links aber melden
+                (my $rl = $f) =~ s{^\Q$real\E/?}{};
+                push @links, { path => $rl, target => (readlink($f) // "") } if(-d $f);
+                return;
+            }
+            return if(!-f _);
+            my @st = lstat($f);
+            my $size = $st[7] // 0;
+            $count++;
+            $total += $size;
+            (my $rel = $f) =~ s{^\Q$real\E/?}{};
+            my ($sub) = ($rel =~ m{^([^/]+)/});
+            if(defined($sub)) {
+                $subdirs{$sub}{bytes} += $size;
+                $subdirs{$sub}{files}++;
+            }
+            # Gruppe: Dateiname ohne Datumsanteil (2026, 2026-41, 20260922 ...)
+            (my $g = $rel) =~ s/(?:19|20)\d\d(?:[-_.]?\d\d){0,2}/*/g;
+            $groups{$g}{bytes} += $size;
+            $groups{$g}{files}++;
+            push @files, [$rel, $size, $st[9]] if($size >= $minKB * 1024);
+        },
+    }, $real);   # aufgeloester Pfad: log darf ein Symlink sein (z. B. nach /var/log)
+
+    @files = sort { $b->[1] <=> $a->[1] } @files;
+    splice(@files, $limit) if(@files > $limit);
+    my @gl = sort { $groups{$b}{bytes} <=> $groups{$a}{bytes} } keys %groups;
+    splice(@gl, $limit) if(@gl > $limit);
+    my @sl = sort { $subdirs{$b}{bytes} <=> $subdirs{$a}{bytes} } keys %subdirs;
+
+    my $dfPath = qx(df -Pk \Q$real\E 2>/dev/null);
+    my ($dfLine) = grep { !/^Filesystem/i } split(/\n/, $dfPath // "");
+    my $fs;
+    if(defined($dfLine)) {
+        my @c = split(/\s+/, $dfLine, 6);
+        $fs = { device => $c[0], sizeKB => $c[1]+0, usedKB => $c[2]+0,
+                availKB => $c[3]+0, usePercent => $c[4], mount => $c[5] }
+            if(@c >= 6);
+    }
+
+    return MCP_ok({
+        path        => $path,
+        realPath    => $real,
+        totalBytes  => $total,
+        totalMB     => sprintf("%.1f", $total/1048576)+0,
+        fileCount   => $count,
+        truncated   => $truncated ? JSON::true : JSON::false,
+        filesystem  => $fs,
+        filesystems => MCP_dfAll(),
+        largest     => [ map { { file => $_->[0], bytes => $_->[1],
+                                 MB => sprintf("%.1f", $_->[1]/1048576)+0,
+                                 mtime => FmtDateTime($_->[2]) } } @files ],
+        groups      => [ map { { pattern => $_, files => $groups{$_}{files},
+                                 bytes => $groups{$_}{bytes},
+                                 MB => sprintf("%.1f", $groups{$_}{bytes}/1048576)+0 } } @gl ],
+        symlinks    => \@links,   # z. B. log -> /var/log/fhem: separat mit path abfragen
+        subdirs     => [ map { { dir => $_, files => $subdirs{$_}{files},
+                                 bytes => $subdirs{$_}{bytes},
+                                 MB => sprintf("%.1f", $subdirs{$_}{bytes}/1048576)+0 } } @sl ],
+    });
+}
+
 # define/modify: admin-Scope, global per Attribut freigeschaltet, best-effort
 # Pattern-Filter gegen offensichtliche RCE. Restrisiko bleibt - siehe Kopf.
 sub MCP_defineDevice { return MCP_defmod(@_, 0); }
@@ -1260,6 +1413,23 @@ sub MCP_err {
         fuer die Aktion <code>search_log</code> (Default: das <code>global
         logfile</code>). Datumsplatzhalter wie <code>%Y</code>/<code>%m</code>
         werden aufgeloest.</li>
+    <li><a id="MCP-attr-allowDirs"></a><b>allowDirs</b> &ndash; Verzeichnisse
+        (relativ zum FHEM-Basisverzeichnis, durch Leerzeichen oder Komma
+        getrennt), deren Belegung die Aktion <code>disk_usage</code> auswerten
+        darf (Default <code>.</code> = das ganze FHEM-Verzeichnis;
+        einschraenken z. B. mit <code>log log-archive backup</code>).
+        Unterverzeichnisse sind eingeschlossen,
+        <code>..</code> und absolute Pfade werden abgewiesen. Ausgegeben werden
+        nur Dateinamen, Groessen und Aenderungsdatum, kein Inhalt.
+        <code>disk_usage</code> liefert die groessten Dateien, die Summe je
+        Dateireihe ohne Datum (z. B. alle <code>MAX_0a9d5a-*.log</code>), die
+        Unterverzeichnisse und den Fuellstand aller Dateisysteme (df).
+        Das angefragte Verzeichnis selbst darf ein Symlink sein (z. B.
+        <code>log</code> nach <code>/var/log/fhem</code>); Symlinks darunter
+        werden nicht verfolgt, Verzeichnis-Links aber unter
+        <code>symlinks</code> gemeldet und koennen gezielt abgefragt werden.
+        Zum Schutz vor Freezes bricht die Suche nach 100000 Dateien bzw. 10 s
+        ab (<code>truncated</code>).</li>
     <li><a id="MCP-attr-defaultTtl"></a><b>defaultTtl</b> &ndash;
         Standard-Gueltigkeit eines Grants in Minuten (Default 60).</li>
     <li><a id="MCP-attr-maxTtl"></a><b>maxTtl</b> &ndash; Obergrenze fuer die

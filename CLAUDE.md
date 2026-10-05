@@ -108,6 +108,11 @@ exponieren.
   frisch angelegte Gerät sofort wieder außerhalb der Allowlist.
 - `set_attribute room …` hängt den `writeRoom` automatisch an, damit sich ein
   Gerät nicht selbst aus der Allowlist wirft.
+- `disk_usage` (ab 0.5.0) darf nur Verzeichnisse aus `allowDirs` auswerten
+  (Default `.` = ganzes FHEM-Verzeichnis, Nutzer-Entscheidung 05.10.2026);
+  liefert nur Namen/Größen/Datum. Der Startpfad wird per `abs_path` aufgelöst
+  (beim Nutzer sind `log` und `log-archive` Symlinks nach `/var/log`!), darunter
+  werden Symlinks nicht verfolgt, Verzeichnis-Links aber unter `symlinks` gemeldet; Abbruch nach 100000 Dateien/10 s.
 - Dateien einzeln über `allowFiles` (Glob `*` je Pfadsegment, kein `..`).
   `.pm` schreiben verlangt zusätzlich `admin` + `adminScopeAllowed=1` (= RCE).
 

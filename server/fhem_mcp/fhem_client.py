@@ -12,12 +12,18 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import ssl
 from typing import Any
 
 import httpx
 
 from .config import settings
+
+# httpx loggt auf INFO jede Request-URL – darin steckt das FHEM-Token
+# (?cmd=mcp <token> …). Daher httpx/httpcore nur ab WARNING loggen.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 class FhemError(RuntimeError):
@@ -85,7 +91,9 @@ class FhemClient:
         text = resp.text.strip()
 
         # Abgelaufenes/fehlendes CSRF -> einmal neu holen und wiederholen.
-        if "csrf" in text.lower() and "token" in text.lower() and _retry:
+        # Nach einem FHEM-Neustart ist das alte csrf-Token ungueltig; FHEMWEB
+        # antwortet dann teils mit leerem Body statt einer Fehlermeldung.
+        if _retry and (text == "" or ("csrf" in text.lower() and "token" in text.lower())):
             self._csrf = None
             return await self._request(cmd, _retry=False)
 

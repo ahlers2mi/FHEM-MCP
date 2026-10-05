@@ -154,6 +154,30 @@ async def search_log(
 
 
 @mcp.tool()
+async def disk_usage(
+    path: str = "log", limit: int = 30, min_size_kb: int = 0
+) -> dict[str, Any]:
+    """Plattenbelegung prüfen und große Dateien finden (z. B. „welche Logs
+    fressen die Platte?“). path = Verzeichnis relativ zum FHEM-Basisverzeichnis
+    (Default 'log'), erlaubt sind nur Verzeichnisse aus dem Attribut allowDirs
+    (Default '.'). Liefert die `limit` größten Dateien
+    (optional erst ab `min_size_kb`), die Summe je Dateireihe ohne Datum
+    (z. B. alle 'MAX_0a9d5a-*.log'), die Unterverzeichnisse und den Füllstand
+    aller Dateisysteme (df). Nur Namen, Größen und Datum – kein Inhalt.
+    Symlinks unterhalb von path werden nicht verfolgt, Verzeichnis-Links aber
+    unter 'symlinks' gemeldet (z. B. log -> /var/log/fhem) – diese dann mit
+    path='log' gezielt abfragen."""
+    return await _call(
+        {
+            "action": "disk_usage",
+            "path": path,
+            "limit": limit,
+            "minSizeKB": min_size_kb,
+        }
+    )
+
+
+@mcp.tool()
 async def write_file(path: str, content: str) -> dict[str, Any]:
     """Eine freigegebene Datei schreiben. CSS/JS benötigen den write-Scope,
     .pm-Module zusätzlich den admin-Scope. Datei muss in allowFiles stehen."""
