@@ -42,19 +42,17 @@ perl -e 'use strict; use warnings;
   require "./FHEM/98_MCP.pm"; print "ok\n";'
 ```
 
-### Auslieferung über anonymous.4open.science
+### Auslieferung / FHEM-update
 
-Das Repo ist privat, FHEM-`update` läuft daher über einen Anon-Spiegel.
-**Der Spiegel schreibt `github.com`-URLs im Dateiinhalt um** (in seine eigene
-Anon-URL). Dadurch wächst die `.pm` gegenüber der in `controls_MCP.txt`
-vermerkten Größe und `update` bricht ab:
+Das Repo ist öffentlich. FHEM-`update` direkt von GitHub:
 
-```
-Got 29938 bytes for FHEM/98_MCP.pm, expected 29928 -> aborting.
-```
+    update all https://raw.githubusercontent.com/ahlers2mi/FHEM-MCP/main/controls_MCP.txt
+    reload 98_MCP
 
-Deshalb: **keine `github.com`-URL in `98_MCP.pm`** (auch nicht in der
-commandref). Der Autorname o. Ä. wird *nicht* angetastet und ist unkritisch.
+Falls noch eine Instanz über den alten Anon-Spiegel (anonymous.4open.science)
+aktualisiert: der Spiegel schreibt `github.com`-URLs im Dateiinhalt um, die
+.pm passt dann nicht mehr zur Größe in `controls_MCP.txt` und `update` bricht ab.
+Deshalb weiterhin keine `github.com`-URL in `98_MCP.pm`.
 
 ## Architektur
 
