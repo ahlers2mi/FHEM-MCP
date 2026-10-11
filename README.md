@@ -64,8 +64,8 @@ ohnehin erlauben.
 |---|---|---|
 | `ping` | read | Verbindung/Token prüfen |
 | `list_devices(type?)` | read | Freigegebene Geräte (Räume MCP/MCP_rw) |
-| `get_device(name)` | read | DEF, Internals, Readings, Attribute, State, mögliche set-Befehle |
-| `set_device(name, command, args?)` | write | `set <name> <command> [args]` (nur MCP_rw) |
+| `get_device(device)` | read | DEF, Internals, Readings, Attribute, State, mögliche set-Befehle |
+| `set_device(device, command, args?)` | write | `set <name> <command> [args]` (nur MCP_rw) |
 | `set_attribute(device, attribute, value)` | write | `attr …` (nur MCP_rw; `room` setzbar, der writeRoom bleibt aber erhalten) |
 | `set_reading(device, reading, value)` | write | `setreading …` |
 | `delete_reading(device, reading)` | write | `deletereading …` |
@@ -75,7 +75,7 @@ ohnehin erlauben.
 | `disk_usage(path?, limit?, min_size_kb?)` | read | Plattenbelegung: größte Dateien, Summe je Dateireihe ohne Datum, Unterordner, df aller Dateisysteme (nur Verzeichnisse aus `allowDirs`, Default `.`) |
 | `write_file(path, content)` | write¹ | Datei schreiben (¹`.pm` ⇒ admin) |
 | `define_device(device, definition)` | admin | `defmod …`; neu angelegtes Gerät kommt automatisch in den writeRoom (sofort weiter nutzbar) |
-| `modify_device(device, definition)` | admin | `modify …` |
+| `modify_device(device, definition)` | admin | `modify …`; nur für Geräte im writeRoom (ab 0.5.2 gilt das auch für defmod auf bestehende Geräte) |
 
 ---
 

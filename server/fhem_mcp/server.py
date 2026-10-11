@@ -62,25 +62,30 @@ async def list_devices(type: str = "") -> dict[str, Any]:
 
 
 @mcp.tool()
-async def get_device(name: str) -> dict[str, Any]:
+async def get_device(device: str = "", name: str = "") -> dict[str, Any]:
     """Details eines freigegebenen Geräts: def (Definition – Trigger/Code für
     notify/DOIF/at), internals, readings, attributes, state und die möglichen
-    set-Befehle (possibleSets)."""
-    return await _call({"action": "get_device", "device": name})
+    set-Befehle (possibleSets). Parameter `device` (`name` = alter Alias)."""
+    return await _call({"action": "get_device", "device": device or name})
 
 
 # ---------------------------------------------------------------------------
 # Tools – Geräte steuern (write scope)
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def set_device(name: str, command: str, args: str = "") -> dict[str, Any]:
-    """set <name> <command> [args] – nur für steuerbare Geräte (Raum MCP_rw).
+async def set_device(
+    command: str, device: str = "", args: str = "", name: str = ""
+) -> dict[str, Any]:
+    """set <device> <command> [args] – nur für steuerbare Geräte (Raum MCP_rw).
+    Parameter `device` (`name` = alter Alias).
 
-    Beispiel: set_device('Lampe_Wohnzimmer', 'on'); set_device('Heizung',
-    'desired-temp', '21.5'). Befehlsverkettung/Perl/Shell ist gesperrt.
+    Beispiel: set_device(device='Lampe_Wohnzimmer', command='on');
+    set_device(device='Heizung', command='desired-temp', args='21.5').
+    Befehlsverkettung/Perl/Shell ist gesperrt.
     """
     return await _call(
-        {"action": "set_device", "device": name, "command": command, "args": args}
+        {"action": "set_device", "device": device or name, "command": command,
+         "args": args}
     )
 
 

@@ -32,7 +32,7 @@
 #      MCP-Container erlaubt werden.
 #
 # Autor:    ahlers2mi
-# Version:  v0.5.1
+# Version:  v0.5.2
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
 
@@ -117,7 +117,7 @@ sub MCP_Define {
     my ($hash, $def) = @_;
     my @param = split('[ \t]+', $def);
 
-    $hash->{FVERSION} = "98_MCP.pm:v0.5.1";
+    $hash->{FVERSION} = "98_MCP.pm:v0.5.2";
 
     return "Usage: define <name> MCP" if(int(@param) != 2);
 
@@ -737,7 +737,7 @@ sub MCP_dispatch {
 # Aktionen
 # ----------------------------------------------------------------------------
 sub MCP_ping {
-    return MCP_ok({ pong => 1, version => "0.5.1" });
+    return MCP_ok({ pong => 1, version => "0.5.2" });
 }
 
 sub MCP_listDevices {
@@ -1219,6 +1219,14 @@ sub MCP_defmod {
     my $def = $req->{definition} // "";   # bei define: "<TYPE> <args...>"; bei modify: neue args
     return MCP_err("device required") if($dev eq "");
     return MCP_err("definition required") if($def eq "" && !$isModify);
+
+    # Bestehende Geraete duerfen (wie bei set/attr) nur geaendert bzw. per
+    # defmod ueberschrieben werden, wenn sie im writeRoom liegen. Neue Geraete
+    # sind erlaubt und landen unten automatisch im writeRoom.
+    if(defined($defs{$dev}) && !MCP_canWrite($name, $dev)) {
+        return MCP_err("device '$dev' not writable (not in writeRoom)", 403);
+    }
+    return MCP_err("no such device '$dev'") if($isModify && !defined($defs{$dev}));
 
     # best-effort Schutz gegen Shell/Perl-Ausbruch
     my $deny = AttrVal($name, "adminDenyPattern",
