@@ -134,10 +134,23 @@ async def list_files() -> dict[str, Any]:
 
 
 @mcp.tool()
-async def read_file(path: str) -> dict[str, Any]:
+async def read_file(
+    path: str, pattern: str = "", limit: int = 0, offset: int = 0
+) -> dict[str, Any]:
     """Inhalt einer freigegebenen Datei lesen (relativ zum FHEM-Basisverzeichnis,
-    z. B. 'www/pgm2/mystyle.css'). Datei muss in allowFiles stehen."""
-    return await _call({"action": "read_file", "path": path})
+    z. B. 'www/pgm2/mystyle.css'). Datei muss in allowFiles stehen.
+    Gepackte Logs (*.gz) werden entpackt. Optional: pattern = Perl-Regex, nur
+    passende Zeilen; limit = max. Zeilen; offset = so viele Rohzeilen
+    ueberspringen. Bei truncated=true mit offset=nextOffset weiterlesen
+    (Grenzen: 4 MB Antwort, ca. 5 s Laufzeit; FHEM ist solange blockiert)."""
+    payload: dict[str, Any] = {"action": "read_file", "path": path}
+    if pattern:
+        payload["pattern"] = pattern
+    if limit:
+        payload["limit"] = limit
+    if offset:
+        payload["offset"] = offset
+    return await _call(payload)
 
 
 @mcp.tool()

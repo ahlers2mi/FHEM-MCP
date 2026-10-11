@@ -70,7 +70,7 @@ ohnehin erlauben.
 | `set_reading(device, reading, value)` | write | `setreading …` |
 | `delete_reading(device, reading)` | write | `deletereading …` |
 | `list_files()` | read | Freigegebene Dateien (`allowFiles`) |
-| `read_file(path)` | read | Datei lesen |
+| `read_file(path, pattern?, limit?, offset?)` | read | Datei lesen; `.gz` wird entpackt; `pattern` filtert Zeilen (Perl-Regex), `limit`/`offset` zum stückweisen Lesen (ab 0.5.3) |
 | `search_log(pattern?, limit?, ignore_case?)` | read | FHEM-System-Log durchsuchen (Regex, jüngste N Treffer; Tokens redigiert) |
 | `disk_usage(path?, limit?, min_size_kb?)` | read | Plattenbelegung: größte Dateien, Summe je Dateireihe ohne Datum, Unterordner, df aller Dateisysteme (nur Verzeichnisse aus `allowDirs`, Default `.`) |
 | `write_file(path, content)` | write¹ | Datei schreiben (¹`.pm` ⇒ admin) |

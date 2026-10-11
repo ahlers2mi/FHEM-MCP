@@ -32,7 +32,7 @@
 #      MCP-Container erlaubt werden.
 #
 # Autor:    ahlers2mi
-# Version:  v0.5.2
+# Version:  v0.5.3
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
 
@@ -117,7 +117,7 @@ sub MCP_Define {
     my ($hash, $def) = @_;
     my @param = split('[ \t]+', $def);
 
-    $hash->{FVERSION} = "98_MCP.pm:v0.5.2";
+    $hash->{FVERSION} = "98_MCP.pm:v0.5.3";
 
     return "Usage: define <name> MCP" if(int(@param) != 2);
 
@@ -737,7 +737,7 @@ sub MCP_dispatch {
 # Aktionen
 # ----------------------------------------------------------------------------
 sub MCP_ping {
-    return MCP_ok({ pong => 1, version => "0.5.2" });
+    return MCP_ok({ pong => 1, version => "0.5.3" });
 }
 
 sub MCP_listDevices {
@@ -969,9 +969,65 @@ sub MCP_readFile {
     return MCP_err("file '$path' not in allowFiles", 403)
         if(!MCP_fileAllowed($name, $path));
 
-    my ($err, @lines) = FileRead($path);
-    return MCP_err("read failed: $err") if(defined($err) && $err ne "");
-    return MCP_ok({ path => $path, content => join("\n", @lines) });
+    my $pattern = $req->{pattern} // "";
+    my $limit   = int($req->{limit}  // 0);
+    my $offset  = int($req->{offset} // 0);
+    $limit  = 0 if($limit  < 0);
+    $offset = 0 if($offset < 0);
+    my $gz = ($path =~ /\.gz$/) ? 1 : 0;
+
+    # bisheriges Verhalten: ganze Datei ueber FileRead (auch configDB)
+    if(!$gz && $pattern eq "" && !$limit && !$offset) {
+        my ($err, @lines) = FileRead($path);
+        return MCP_err("read failed: $err") if(defined($err) && $err ne "");
+        return MCP_ok({ path => $path, content => join("\n", @lines) });
+    }
+
+    # gefiltert/gepackt/stueckweise: zeilenweise lesen, mit Grenzen, damit
+    # FHEM nicht zu lange blockiert und die Antwort nicht zu gross wird.
+    my $re;
+    if($pattern ne "") {
+        $re = eval { qr/$pattern/ };
+        return MCP_err("invalid pattern: $@") if(!defined($re));
+    }
+    my $fh;
+    if($gz) {
+        # externes gzip ist um ein Vielfaches schneller als IO::Uncompress
+        # zeilenweise; Fallback, falls gzip fehlt. Pfad wurde oben geprueft
+        # und wird als eigenes Argument (ohne Shell) uebergeben.
+        if(!-r $path) { return MCP_err("read failed: $path not readable"); }
+        if(!open($fh, "-|", "gzip", "-dc", "--", $path)) {
+            require IO::Uncompress::Gunzip;
+            $fh = IO::Uncompress::Gunzip->new($path, MultiStream => 1)
+                or return MCP_err("read failed: $IO::Uncompress::Gunzip::GunzipError");
+        }
+    } else {
+        open($fh, "<", $path) or return MCP_err("read failed: $!");
+    }
+    my $maxBytes = 4 * 1024 * 1024;   # max. Antwortgroesse
+    my $maxSecs  = 5;                 # max. Laufzeit (FHEM ist single-threaded)
+    my $t0 = time();
+    my ($lineNo, $matched, $bytes, $truncated, $reason) = (0, 0, 0, 0, "");
+    my @out;
+    while(defined(my $l = <$fh>)) {
+        $lineNo++;
+        next if($lineNo <= $offset);
+        if(($lineNo % 20000) == 0 && time() - $t0 > $maxSecs) {
+            $truncated = 1; $reason = "time"; $lineNo--; last;
+        }
+        next if(defined($re) && $l !~ $re);
+        $l =~ s/\r?\n$//;
+        $matched++;
+        push(@out, $l);
+        $bytes += length($l) + 1;
+        if($limit && $matched >= $limit) { $truncated = 1; $reason = "limit"; last; }
+        if($bytes >= $maxBytes)          { $truncated = 1; $reason = "size";  last; }
+    }
+    close($fh);
+    my %res = (path => $path, content => join("\n", @out), lines => $matched,
+               scannedTo => $lineNo, truncated => ($truncated ? JSON::true : JSON::false));
+    if($truncated) { $res{reason} = $reason; $res{nextOffset} = $lineNo; }
+    return MCP_ok(\%res);
 }
 
 sub MCP_writeFile {
