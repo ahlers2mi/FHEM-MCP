@@ -1,0 +1,21 @@
+# Optionale Ergaenzung zu docker-compose.yml (in Portainer: Git-Stack ->
+# "Additional paths", lokal: docker compose -f docker-compose.yml -f docker-compose.netz.yml up -d)
+#
+# Fuer Installationen, in denen der Container einen festen Namen braucht und
+# in einem bestehenden (externen) Docker-Netz haengt, z. B. damit andere
+# Container ihn als http://mcp-main-fhem:8000/mcp erreichen.
+#   FHEMMCP_NAME     Containername        (Default mcp-main-fhem)
+#   FHEMMCP_NETWORK  externes Docker-Netz (Default mcp-net, muss existieren)
+
+services:
+  fhem-mcp:
+    container_name: ${FHEMMCP_NAME:-mcp-main-fhem}
+    networks:
+      - mcpnet
+    tmpfs:
+      - /tmp
+
+networks:
+  mcpnet:
+    name: ${FHEMMCP_NETWORK:-mcp-net}
+    external: true
