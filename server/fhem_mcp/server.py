@@ -224,6 +224,15 @@ async def modify_device(device: str, definition: str) -> dict[str, Any]:
     )
 
 
+@mcp.tool()
+async def reload_module(module: str) -> dict[str, Any]:
+    """reload <module> – lädt ein FHEM-Modul neu (z. B. '99_myUtils' nach
+    write_file). Nur vorhandene Dateien FHEM/NN_Name.pm. Erfordert den
+    admin-Scope und adminScopeAllowed=1 in FHEM. 98_MCP selbst wird 1 s
+    verzögert neu geladen (danach ping)."""
+    return await _call({"action": "reload_module", "module": module})
+
+
 # ---------------------------------------------------------------------------
 # ASGI-Middleware: Bearer-Token lesen und auflösen
 #   - OAuth-Access-Token  -> internes FHEM-Token (aus dem OAuth-Store)

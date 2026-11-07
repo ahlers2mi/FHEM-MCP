@@ -76,6 +76,7 @@ ohnehin erlauben.
 | `write_file(path, content)` | write¹ | Datei schreiben (¹`.pm` ⇒ admin) |
 | `define_device(device, definition)` | admin | `defmod …`; neu angelegtes Gerät kommt automatisch in den writeRoom (sofort weiter nutzbar) |
 | `modify_device(device, definition)` | admin | `modify …`; nur für Geräte im writeRoom (ab 0.5.2 gilt das auch für defmod auf bestehende Geräte) |
+| `reload_module(module)` | admin | `reload <NN_Name>` für ein vorhandenes `FHEM/*.pm` (ab 0.6.0); `98_MCP` selbst wird 1 s verzögert neu geladen |
 
 ---
 

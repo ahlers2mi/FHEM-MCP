@@ -32,7 +32,7 @@
 #      MCP-Container erlaubt werden.
 #
 # Autor:    ahlers2mi
-# Version:  v0.5.3
+# Version:  v0.6.0
 # Lizenz:   GPL v2 oder hoeher (wie FHEM)
 ##############################################################################
 
@@ -68,6 +68,7 @@ my %MCP_actionLevel = (
     write_file    => 2,   # .pm-Dateien verlangen zusaetzlich admin (s. MCP_writeFile)
     define_device => 3,
     modify_device => 3,
+    reload_module => 3,   # zusaetzlich adminScopeAllowed (s. MCP_reloadModule)
 );
 
 # Singleton-Name merken, damit das Kommando "mcp" das zustaendige Geraet
@@ -117,7 +118,7 @@ sub MCP_Define {
     my ($hash, $def) = @_;
     my @param = split('[ \t]+', $def);
 
-    $hash->{FVERSION} = "98_MCP.pm:v0.5.3";
+    $hash->{FVERSION} = "98_MCP.pm:v0.6.0";
 
     return "Usage: define <name> MCP" if(int(@param) != 2);
 
@@ -729,6 +730,7 @@ sub MCP_dispatch {
     return MCP_writeFile($name, $req, $level) if($action eq "write_file");
     return MCP_defineDevice($name, $req)    if($action eq "define_device");
     return MCP_modifyDevice($name, $req)    if($action eq "modify_device");
+    return MCP_reloadModule($name, $req)    if($action eq "reload_module");
 
     return MCP_err("unhandled action '$action'");
 }
@@ -737,7 +739,7 @@ sub MCP_dispatch {
 # Aktionen
 # ----------------------------------------------------------------------------
 sub MCP_ping {
-    return MCP_ok({ pong => 1, version => "0.5.3" });
+    return MCP_ok({ pong => 1, version => "0.6.0" });
 }
 
 sub MCP_listDevices {
@@ -1323,6 +1325,47 @@ sub MCP_defmod {
 }
 
 # ----------------------------------------------------------------------------
+# reload_module: "reload <NN_Name>" fuer ein vorhandenes Modul unter
+# <modpath>/FHEM/. Neu laden fuehrt nur Code aus, der schon auf der Platte
+# liegt - zusammen mit write_file ist es aber effektiv RCE, deshalb admin-Scope
+# UND adminScopeAllowed=1 (wie define/modify).
+#   module   z. B. "99_myUtils" oder "99_myUtils.pm"
+# 98_MCP selbst wird nicht sofort, sondern 1 s spaeter neu geladen (sonst wuerde
+# der gerade laufende Code unter der eigenen Antwort ausgetauscht).
+# ----------------------------------------------------------------------------
+sub MCP_reloadModule {
+    my ($name, $req) = @_;
+
+    return MCP_err("admin scope is disabled on the device", 403)
+        if(!AttrVal($name, "adminScopeAllowed", 0));
+
+    my $mod = $req->{module} // "";
+    $mod =~ s/\.pm$//i;
+    return MCP_err("module required (e.g. 99_myUtils)") if($mod eq "");
+    return MCP_err("invalid module name '$mod' (expected NN_Name)", 400)
+        if($mod !~ /^\d\d_[A-Za-z0-9_]+$/);
+
+    my $file = AttrVal("global", "modpath", ".")."/FHEM/$mod.pm";
+    return MCP_err("no such module file FHEM/$mod.pm", 404) if(!-f $file);
+
+    if($mod eq "98_MCP") {
+        Log3($name, 2, "$name: ADMIN reload $mod (deferred)");
+        InternalTimer(gettimeofday() + 1, sub {
+            my $r = CommandReload(undef, "98_MCP");
+            Log3(undef, 1, "MCP: reload 98_MCP failed: $r") if(defined($r) && $r =~ /\S/);
+        }, "MCP_selfReload", 0);
+        return MCP_ok({ module => $mod, scheduled => JSON::true,
+                        note => "98_MCP wird in 1 s neu geladen; danach mit ping die Version pruefen." });
+    }
+
+    Log3($name, 2, "$name: ADMIN reload $mod");
+    my $ret = CommandReload(undef, $mod);
+    $ret = "" if(!defined($ret));
+    return MCP_err("reload $mod failed: $ret") if($ret =~ /\S/);
+    return MCP_ok({ module => $mod, executed => "reload $mod" });
+}
+
+# ----------------------------------------------------------------------------
 # UTF-8-Normalisierung der dekodierten Request-Strings (siehe MCP_command).
 # ----------------------------------------------------------------------------
 sub MCP_normStr {
@@ -1400,7 +1443,7 @@ sub MCP_err {
         Attribute <code>readRoom</code>/<code>writeRoom</code>).</li>
     <li>Scopes: <code>read</code> (lesen), <code>write</code>
         (set/attr/setreading) und <code>admin</code> (zusaetzlich
-        define/modify - effektiv volle Kontrolle, deshalb getrennt und per
+        define/modify/reload - effektiv volle Kontrolle, deshalb getrennt und per
         <code>adminScopeAllowed</code> abgesichert).</li>
   </ul>
 
@@ -1503,7 +1546,7 @@ sub MCP_err {
         ttl in Minuten (Default 1440).</li>
     <li><a id="MCP-attr-adminScopeAllowed"></a><b>adminScopeAllowed</b> 1|0
         &ndash; erlaubt das Vergeben des <code>admin</code>-Scopes (define/
-        modify). Default 0. <b>Vorsicht:</b> admin = effektiv volle Kontrolle
+        modify/reload_module). Default 0. <b>Vorsicht:</b> admin = effektiv volle Kontrolle
         ueber FHEM (Perl-/Shell-Bloecke). Nur kurz und bewusst aktivieren.</li>
     <li><a id="MCP-attr-adminDenyPattern"></a><b>adminDenyPattern</b> &ndash;
         Regex, der define/modify-Eingaben ablehnt (best-effort Schutz gegen
